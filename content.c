@@ -205,7 +205,7 @@ static int content_patch_file(struct content *content, const char *path) {
 	int fd;
 	int ret = -1;
 	struct stat stat;
-	void *addr;
+	void *addr = MAP_FAILED;
 	void *out = NULL;
 	size_t out_size = 0;
 	char *content_path = strdup(content->path);

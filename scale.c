@@ -131,34 +131,13 @@ static void scale1x(unsigned w, unsigned h, size_t pitch, const void *src, void 
 
 static void scale2x(unsigned w, unsigned h, size_t pitch, const void *src, void *dst) {
 	scale2x_c16(src, dst+dst_offs, w, h, pitch, SCREEN_PITCH);
-	return;
-	
-	dst += dst_offs;
-	for (unsigned y = 0; y < h; y++) {
-		uint16_t* src_row = src + y * pitch;
-		uint16_t* dst_row = dst + y * SCREEN_PITCH * 2;
-		for (unsigned x = 0; x < w; x++) {
-			uint16_t s = *src_row;
-			
-			// row 1
-			*(dst_row                       ) = s;
-			*(dst_row + 1                   ) = s;
-			
-			// row 2
-			*(dst_row + SCREEN_WIDTH * 1    ) = s;
-			*(dst_row + SCREEN_WIDTH * 1 + 1) = s;
-			
-			src_row += 1;
-			dst_row += 2;
-		}
-	}
 }
 static void scale2x_lcd(unsigned w, unsigned h, size_t pitch, const void *src, void *dst) {
 	dst += dst_offs;
 
 	uint16_t k = 0x0000;
 	for (unsigned y = 0; y < h; y++) {
-		uint16_t* src_row = src + y * pitch;
+		const uint16_t* src_row = src + y * pitch;
 		uint16_t* dst_row = dst + y * SCREEN_PITCH * 2;
 		for (unsigned x = 0; x < w; x++) {
 			uint16_t s = *src_row;
@@ -182,7 +161,7 @@ static void scale2x_scanline(unsigned w, unsigned h, size_t pitch, const void *s
 
 	// uint16_t k = 0x0000;
 	for (unsigned y = 0; y < h; y++) {
-		uint16_t* src_row = src + y * pitch;
+		const uint16_t* src_row = src + y * pitch;
 		uint16_t* dst_row = dst + y * SCREEN_PITCH * 2;
 		for (unsigned x = 0; x < w; x++) {
 			uint16_t s = *src_row;
@@ -202,7 +181,7 @@ static void scale2x_scanline(unsigned w, unsigned h, size_t pitch, const void *s
 static void scale3x(unsigned w, unsigned h, size_t pitch, const void *src, void *dst) {
 	dst += dst_offs;
 	for (unsigned y = 0; y < h; y++) {
-		uint16_t* src_row = src + y * pitch;
+		const uint16_t* src_row = src + y * pitch;
 		uint16_t* dst_row = dst + y * SCREEN_PITCH * 3;
 		for (unsigned x = 0; x < w; x++) {
 			uint16_t s = *src_row;
@@ -232,7 +211,7 @@ static void scale3x_lcd(unsigned w, unsigned h, size_t pitch, const void *src, v
 
 	uint16_t k = 0x0000;
 	for (unsigned y = 0; y < h; y++) {
-		uint16_t* src_row = src + y * pitch;
+		const uint16_t* src_row = src + y * pitch;
 		uint16_t* dst_row = dst + y * SCREEN_PITCH * 3;
 		for (unsigned x = 0; x < w; x++) {
 			uint16_t s = *src_row;
@@ -265,7 +244,7 @@ static void scale3x_dmg(unsigned w, unsigned h, size_t pitch, const void *src, v
 
 	uint16_t g = 0xffff;
 	for (unsigned y = 0; y < h; y++) {
-		uint16_t* src_row = src + y * pitch;
+		const uint16_t* src_row = src + y * pitch;
 		uint16_t* dst_row = dst + y * SCREEN_PITCH * 3;
 		for (unsigned x = 0; x < w; x++) {
 			uint16_t _1 = *src_row;
@@ -296,7 +275,7 @@ static void scale3x_scanline(unsigned w, unsigned h, size_t pitch, const void *s
 	dst += dst_offs;
 
 	for (unsigned y = 0; y < h; y++) {
-		uint16_t* src_row = src + y * pitch;
+		const uint16_t* src_row = src + y * pitch;
 		uint16_t* dst_row = dst + y * SCREEN_PITCH * 3;
 		for (unsigned x = 0; x < w; x++) {
 			uint16_t s = *src_row;
@@ -327,7 +306,7 @@ static void scale6x_dmg(unsigned w, unsigned h, size_t pitch, const void *src, v
 
 	uint16_t g = 0xffff;
 	for (unsigned y = 0; y < h; y++) {
-		uint16_t* src_row = src + y * pitch;
+		const uint16_t* src_row = src + y * pitch;
 		uint16_t* dst_row = dst + y * SCREEN_PITCH * 6;
 		for (unsigned x = 0; x < w; x++) {
 			uint16_t _1 = *src_row;

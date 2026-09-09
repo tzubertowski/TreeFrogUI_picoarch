@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #define FROGUI_CORE "/mnt/sdcard/cubegm/cores/frogui_libretro.so"
@@ -28,6 +29,7 @@ static const char *picoarch_for_core(const char *core) {
 #include "core.h"
 #include "config.h"
 #include "content.h"
+#include "frogui_settings.h"
 #include "libpicofe/config_file.h"
 #include "libpicofe/input.h"
 #include "main.h"
@@ -48,15 +50,15 @@ bool should_quit = false;
 unsigned current_audio_buffer_size;
 char core_name[MAX_PATH];
 int config_override = 0;
-static int last_screenshot = 0;
 int g_debug_frame = 0;
-static int g_filter_on_menu_enter = -1;
 
 #ifdef PLATFORM_SF3000
 /* FrogUI owns the nearest/bilinear filter choice (single setting, applies to
  * every game).  Picoarch reads /mnt/sdcard/frogui/settings.txt at startup and
- * overrides scale_filter accordingly.  No in-game menu option to change. */
-#define FROGUI_SETTINGS_FILE "/mnt/sdcard/frogui/settings.txt"
+ * overrides scale_filter accordingly.  No in-game menu option to change.
+ * The file is parsed through the ONE shared helper (frogui_settings.h) -
+ * main.c, plat_sdl.c and menu.c all read FrogUI settings through it, so the
+ * parsing cannot drift between consumers. */
 #define LAST_GAME_FILE       "/mnt/sdcard/picoarch/last_game.txt"
 /* Two independent settings (were one "auto_resume" toggle):
  *  - g_quick_resume: boot behavior — skip FrogUI and jump straight into the
@@ -86,40 +88,21 @@ static void apply_brightness(int level) {
 	DBG("DBG apply_brightness: level=%d -> %d\n", level, out);
 }
 static void load_frogui_settings(void) {
-	FILE *f = fopen(FROGUI_SETTINGS_FILE, "r");
-	if (!f) { DBG("DBG load_frogui_settings: no settings file\n"); return; }
-	char line[256];
-	while (fgets(line, sizeof(line), f)) {
-		char *eq = strchr(line, '=');
-		if (!eq) continue;
-		*eq = '\0';
-		char *val = eq + 1;
-		char *nl = strchr(val, '\n'); if (nl) *nl = '\0';
-		char *cr = strchr(val, '\r'); if (cr) *cr = '\0';
-		if (strcmp(line, "filter") == 0) {
-			/* FrogUI's filter is only the DEFAULT: if this game has its own
-			 * config (config_override), its in-menu Filter choice wins, so
-			 * don't clobber it here. sharp has no FrogUI keyword — per-game only. */
-			if (!config_override) {
-				if (strcmp(val, "bilinear") == 0)      scale_filter = SCALE_FILTER_BILINEAR;
-				else if (strcmp(val, "nearest") == 0)  scale_filter = SCALE_FILTER_NEAREST;
-			}
-			DBG("DBG load_frogui_settings: filter=%s override=%d → scale_filter=%d\n",
-			        val, config_override, scale_filter);
-		} else if (strcmp(line, "auto_resume") == 0) {
-			g_quick_resume = (strcmp(val, "on") == 0) ? 1 : 0;
-			DBG("DBG load_frogui_settings: quick_resume=%d\n", g_quick_resume);
-		} else if (strcmp(line, "autosave_autoload") == 0) {
-			g_autosave_autoload = (strcmp(val, "on") == 0) ? 1 : 0;
-			DBG("DBG load_frogui_settings: autosave_autoload=%d\n", g_autosave_autoload);
-		} else if (strcmp(line, "brightness") == 0) {
-			g_brightness = atoi(val);   /* applied on game path only, see below */
-		}
+	/* filter: FrogUI's choice is only the DEFAULT: if this game has its own
+	 * config (config_override), its in-menu Filter choice wins, so don't
+	 * clobber it here. sharp has no FrogUI keyword — per-game only. */
+	if (!config_override) {
+		if (frogui_setting_is("filter", "bilinear"))     scale_filter = SCALE_FILTER_BILINEAR;
+		else if (frogui_setting_is("filter", "nearest")) scale_filter = SCALE_FILTER_NEAREST;
 	}
-	fclose(f);
+	DBG("DBG load_frogui_settings: filter override=%d → scale_filter=%d\n",
+	        config_override, scale_filter);
+	g_quick_resume     = frogui_setting_is("auto_resume", "on");
+	g_autosave_autoload = frogui_setting_is("autosave_autoload", "on");
+	g_brightness       = frogui_setting_int("brightness", -1);   /* applied on game path only */
+	DBG("DBG load_frogui_settings: quick_resume=%d autosave_autoload=%d\n",
+	        g_quick_resume, g_autosave_autoload);
 }
-static void load_frogui_filter(void) { load_frogui_settings(); }
-
 static int read_last_game(char *core, size_t cs, char *rom, size_t rs) {
 	FILE *f = fopen(LAST_GAME_FILE, "r");
 	if (!f) { DBG("DBG read_last_game: file missing (good)\n"); return 0; }
@@ -1219,11 +1202,34 @@ int quit(int code) {
 	/* libffplayer also owns AUDDEC/I2SO. Release only picoarch's proprietary
 	 * audio engine here. A full plat_finish() closes SDL/fb0 and prevents the
 	 * firmware player loader from reaching main(), while leaving audio active
-	 * makes audio-master video wait forever. */
-	if (next_is_video_player) {
+	 * makes audio-master video wait forever. The amp line must stay OPEN:
+	 * libffplayer re-inits the whole digital audio path but never touches the
+	 * physical mute pad - a closed line here meant a silent video (the line
+	 * now lives in the caller, not in finish_for_exec). */
+	if (next_is_video_player || next_is_image_viewer) {
 		extern void sf3000_sound_finish_for_exec(void);
+		extern void sf3000_sound_open_for_exec(void);
 		sf3000_sound_finish_for_exec();
-		DBG("DBG quit: audio cleanup done for video player\n");
+		sf3000_sound_open_for_exec();
+		DBG("DBG quit: audio cleanup done + speaker line open for media app\n");
+	}
+	/* Standalone apps own their audio and have no gate: hand the amp line
+	 * over OPEN (the video player above keeps it closed because libffplayer
+	 * re-inits the whole audio path itself).
+	 * ORDER MATTERS - fixed the silent-PS1 race (device log 253-255): the
+	 * launcher's audio thread used to re-close the amp line ~2 ms after
+	 * this open, so pcsx4all exec'd with a physically muted speaker and
+	 * games like Worms Armageddon stayed totally silent.  Release our DAC
+	 * FIRST (the consumer thread deinits AUDDEC/I2SO on its own thread,
+	 * giving the audio daemon a clean handoff instead of a half-alive
+	 * stream), THEN open the amp line as the LAST audio action before
+	 * exec - nothing runs after this that could close it again. */
+	if (next_is_standalone && !next_is_video_player && !next_is_image_viewer) {
+		extern void sf3000_sound_release_for_exec(void);
+		sf3000_sound_release_for_exec();
+		extern void sf3000_sound_open_for_exec(void);
+		sf3000_sound_open_for_exec();
+		DBG("DBG quit: DAC released + speaker line opened for standalone app\n");
 	}
 	/* Keep fb0/dis fds open across exec — closing them breaks the panel
 	 * state recovery (was working in commit 6537239). */
@@ -1242,10 +1248,15 @@ int quit(int code) {
 	}
 	/* A game hands off to FrogUI with exec(), so normal plat_finish() is not
 	 * reached.  Stop the game DAC before that handoff; FrogUI deliberately does
-	 * not initialise it, preventing idle hiss/static in the main menu. */
+	 * not initialise it, preventing idle hiss/static in the main menu. Also
+	 * close the amp line: the launcher mutes it on arrival anyway (see
+	 * plat_init), but this closes the window where the next process inherits
+	 * a live amp with no DAC owner. */
 	{
 		extern void sf3000_sound_finish_for_exec(void);
+		extern void sf3000_sound_close_for_exec(void);
 		sf3000_sound_finish_for_exec();
+		sf3000_sound_close_for_exec();
 	}
 	DBG("DBG exec FrogUI fallback: bin=%s\n", PICOARCH_BIN);
 	execl(PICOARCH_BIN, "picoarch", FROGUI_CORE, FROGUI_CORE, NULL);

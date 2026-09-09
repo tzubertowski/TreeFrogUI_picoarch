@@ -647,10 +647,7 @@ static const char h_audio_buffer_size[]        =
 	"values reduce the risk of audio crackling at the\n"
 	"cost of delayed sound.";
 
-static const char h_scale_size[]        =
-	"How much to stretch the screen when scaling. Native\n"
-	"does no stretching. Aspect uses the correct aspect\n"
-	"ratio. Full uses the whole screen.";
+
 
 // static const char h_max_upscale[]       =
 // 	"When stretching the screen, the maximum integer\n"
@@ -663,22 +660,20 @@ static const char h_scale_size[]        =
 // 	"Nearest copies the last pixel. Sharp keeps pixels\n"
 // 	"aligned where possible. Smooth adds a blur effect.";
 
-static const char h_scale_effect[]        =
-	"When scaling is possible, which visual effect\n"
-	"to apply. None is simple integer scaling. DMG is\n"
-	"for Gameboy. LCD simulates RGB pixels. Scanline\n"
-	"interleaves black rows. Some effects are only\n"
-	"available at certain scales and resolutions.";
+
 
 static const char h_optimize_text[]        =
 	"When non-integer scaling is required,\n"
 	"prioritize a consistent stroke size for\n"
 	"text. May affect non-text content.";
 
-static const char *men_scale_size[] = { "Integer", "Aspect", "Full", NULL};
+
 static const char *men_aspect_ratio[] = {
 	"Integer", "Native", "4:3", "16:9", "3:2", "5:4", "8:7", "16:10", "Fill", NULL };
+/* SF3000/SF3500 expose only the hardware-supported modes (used by
+ * menu_loop_video_prep when the running device is not R36SX). */
 static const char *men_aspect_ratio_sf[] = { "Integer", "Native", "Fill", NULL };
+
 static const char h_aspect_ratio[] =
 	"Integer: exact pixel multiples (sharpest).\n"
 	"Native: the ratio the core reports. Then forced ratios,\n"
@@ -691,27 +686,8 @@ static const char h_scale_filter[] =
 /* Custom name+cycle for screen size — hides "Integer" when filter=BILINEAR
  * (HW path: SW-upscale to 854×480 panel buffer is too memory-heavy and lags
  * at 60fps). User can still cycle Aspect/Full freely in that mode. */
-static const char *mgn_scale_size(int id, int *offs) {
-    (void)id; (void)offs;
-    switch (scale_size) {
-    case SCALE_SIZE_NONE:   return "Integer";
-    case SCALE_SIZE_ASPECT: return "Aspect";
-    case SCALE_SIZE_FULL:   return "Full";
-    default: return "?";
-    }
-}
 
-static int mh_scale_size(int id, int keys) {
-    (void)id;
-    int dir = (keys & (PBTN_RIGHT|PBTN_R)) ? 1 : -1;
-    int v = (int)scale_size + dir;
-    /* Integer/Aspect/Full all work via HW present now (any filter). */
-    if (v < 0) v = SCALE_SIZE_FULL;
-    if (v > SCALE_SIZE_FULL) v = SCALE_SIZE_NONE;
-    scale_size = (enum scale_size)v;
-    return 0;
-}
-static const char *men_scale_effect[] = { "None", "DMG", "LCD", "Scanline", NULL};
+
 
 #ifdef PLATFORM_SF3000
 extern int sf3000_snd_gain_pct;            /* SW output gain percent (plat_sdl.c) */

@@ -25,6 +25,7 @@
 #include "input.h"
 #include "plat.h"
 #include "posix.h"
+#include "frogui_settings.h"
 
 #if defined(__GNUC__) && __GNUC__ >= 7
 #pragma GCC diagnostic ignored "-Wformat-truncation"
@@ -577,17 +578,14 @@ static int menu_battery_pct(int *charging)
 	return cached;
 }
 
-/* "Battery Colour Mode" from frogui/settings.txt (cached): solid colour light. */
+/* "Battery Colour Mode" from frogui/settings.txt (cached): solid colour light.
+ * Read through the ONE shared parser (frogui_settings.h) - no third copy of
+ * the settings-file parsing here. */
 static int menu_battery_color_mode(void)
 {
 	static int cached = -1;
-	if (cached < 0) {
-		FILE *f = fopen("/mnt/sdcard/frogui/settings.txt", "r");
-		cached = 0;
-		if (f) { char l[128]; while (fgets(l, sizeof l, f))
-			if (!strncmp(l, "battery_color=on", 16)) { cached = 1; break; }
-			fclose(f); }
-	}
+	if (cached < 0)
+		cached = frogui_setting_is("battery_color", "on");
 	return cached;
 }
 

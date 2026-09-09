@@ -162,7 +162,6 @@ struct cheats *cheats_load(const char *filename) {
 	int success = 0;
 	struct cheats *cheats = NULL;
 	FILE *file = NULL;
-	size_t i;
 
 	file = fopen(filename, "r");
 	if (!file)
@@ -189,7 +188,7 @@ struct cheats *cheats_load(const char *filename) {
 	}
 
 	if (parse_cheats(cheats, file)) {
-		PA_ERROR("Error reading cheat %d\n", i);
+		PA_ERROR("Error reading cheats\n");
 		goto finish;
 	}
 
