@@ -22,11 +22,11 @@ sg docker -c 'docker run --rm -v "$(pwd)":/work -v ~/sf3000-work/sf3000toolchain
 
 ### What build_sf3000.sh does:
 1. Uses cross-compiler: `/tc/.../opt/ext-toolchain/bin/mips-mti-linux-gnu-gcc`
-2. Uses buildroot sysroot for SDL1.2, libpng12, zlib headers and libs
+2. Uses buildroot sysroot for SDL1.2, libpng16, zlib headers and libs
 3. Compiles with `platform=sf3000` (adds `plat_sf3000.o`, SF3000-specific flags)
 4. Key flags: `-mips32r2 -mtune=24kc -mfp32 -mhard-float -EL` (little-endian)
 5. Defines: `-DPLATFORM_SF3000 -DUSE_C_SCALER`
-6. Links: `-lSDL -lpng12 -lz -lpthread -ldl`
+6. Links: `-lSDL -lpng16 -lz -lpthread -ldl`
 7. Strips binary (~320KB output)
 
 ### Build only picoarch (not cores):
@@ -75,7 +75,7 @@ The binary goes to `cubegm/picoarch` on the SD card. On device this becomes `/mn
 
 ## Toolchain Details
 - **Cross-compiler:** `mips-mti-linux-gnu-gcc` (Codescape GNU Tools 2018.09-02, GCC 6.3.0)
-- **Sysroot (buildroot):** `.../mipsel-buildroot-linux-gnu/sysroot` — has SDL, libpng12, zlib
+- **Sysroot (buildroot):** `.../mipsel-buildroot-linux-gnu/sysroot` — has SDL, libpng16, zlib
 - **Sysroot (gcc):** `.../opt/ext-toolchain/sysroot/mips-r2-hard` — does NOT have SDL/libs
 - **Critical:** Must pass `--sysroot=<buildroot_sysroot>` and `-L<buildroot_sysroot>/usr/lib` so the linker finds SDL/png/z
 - **SDL config:** `<buildroot_sysroot>/usr/bin-o32/sdl-config`
