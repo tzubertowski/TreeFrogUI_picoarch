@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-cd /home/tomaszz/sf3000-work/picoarch
+cd $HOME/sf3000-work/picoarch
 
 TC="$HOME/sf3000-work/sf3000toolchain/mipsel-buildroot-linux-gnu_sdk-buildroot/opt/ext-toolchain/bin/mips-mti-linux-gnu-"
 SYSROOT="$HOME/sf3000-work/sf3000toolchain/mipsel-buildroot-linux-gnu_sdk-buildroot/mipsel-buildroot-linux-gnu/sysroot"

@@ -1256,6 +1256,8 @@ static const struct sf3000_spk_board *sf3000_spk_board_match(void)
  * target.  Returns 0 when the pad is drivable, non-zero otherwise. */
 static int sf3000_spk_mute_map(void)
 {
+    static int fail_count = 0;
+    if (fail_count < 5) return -1; // Just stop trying to prevent log spam
 	const struct sf3000_spk_board *board;
 	if (!sf3000_gate_config()) return -1;   /* user opted out */
 	if (sf3000_gpioL_regs) return 0;
@@ -1263,6 +1265,7 @@ static int sf3000_spk_mute_map(void)
 	if (!board) {
 		dbg_log("DBG A: speaker gate: no validated board for this device "
 		         "- staying stock (fail closed)\n");
+        fail_count++;
 		return -1;
 	}
 	if (sf3000_mute_pin < 0) {
@@ -1390,11 +1393,10 @@ static void sf3000_spk_live_gate(uint64_t last_real_us, unsigned grace_ms)
 			(uint64_t)grace_ms * 1000u;
 	if (want_live && sf3000_spk_mute_state != 0) {
 		sf3000_spk_mute(0);
-		if (sf3000_spk_mute_state == 0)
-			dbg_log("DBG A: audio flows; speaker line LOW\n");
+		//if (sf3000_spk_mute_state == 0) dbg_log("DBG A: audio flows; speaker line LOW\n");
 	} else if (!want_live && sf3000_spk_mute_state != 1) {
 		sf3000_spk_mute(1);
-		dbg_log("DBG A: audio idle; speaker line HIGH (silent)\n");
+		//dbg_log("DBG A: audio idle; speaker line HIGH (silent)\n");
 	}
 }
 

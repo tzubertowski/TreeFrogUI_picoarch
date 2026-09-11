@@ -468,7 +468,7 @@ static bool pa_environment(unsigned cmd, void *data) {
 	case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: { /* 27 */
 		struct retro_log_callback *log_cb = (struct retro_log_callback *)data;
 		if (log_cb)
-			log_cb->log = pa_log;
+			log_cb->log = core_log_cb;
 		break;
 	}
 	case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: { /* 31 */

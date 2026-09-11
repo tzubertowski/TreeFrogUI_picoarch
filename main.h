@@ -40,10 +40,10 @@ extern char save_template_path[MAX_PATH];
 void dbg_log(const char *fmt, ...);
 #define DBG(...) dbg_log(__VA_ARGS__)
 
-#define PA_INFO(...) pa_log(RETRO_LOG_INFO, __VA_ARGS__)
-#define PA_WARN(...) pa_log(RETRO_LOG_WARN, __VA_ARGS__)
-#define PA_ERROR(...) pa_log(RETRO_LOG_ERROR, __VA_ARGS__)
-#define PA_FATAL(...) do { pa_log(RETRO_LOG_ERROR, __VA_ARGS__); quit(-1); } while(0)
+#define PA_INFO(...) core_log_cb(RETRO_LOG_INFO, __VA_ARGS__)
+#define PA_WARN(...) core_log_cb(RETRO_LOG_WARN, __VA_ARGS__)
+#define PA_ERROR(...) core_log_cb(RETRO_LOG_ERROR, __VA_ARGS__)
+#define PA_FATAL(...) do { core_log_cb(RETRO_LOG_ERROR, __VA_ARGS__); quit(-1); } while(0)
 
 int screenshot(void);
 
@@ -54,7 +54,7 @@ void load_config_keys(void);
 int remove_config(int is_game);
 
 void handle_emu_action(emu_action action);
-void pa_log(enum retro_log_level level, const char *fmt, ...);
+void core_log_cb(enum retro_log_level level, const char *fmt, ...);
 void pa_track_render(void);
 int quit(int code);
 

@@ -129,7 +129,7 @@ static void clear_last_game(void) {
 #endif
 
 void dbg_log(const char *fmt, ...) {
-	/* Write directly to log.txt (append) so every picoarch process — including
+	/* Write directly to picoarch.log (append) so every picoarch process — including
 	 * the game process exec'd from FrogUI — is captured, regardless of whether
 	 * its stderr is redirected.  The file is created automatically on the
 	 * diagnostic builds; a missing marker must not silently discard the evidence
@@ -138,8 +138,8 @@ void dbg_log(const char *fmt, ...) {
 	static FILE *lf = NULL;
 	static unsigned log_lines;
 	if (enabled == -1) {
-		enabled = 1;
-		lf = fopen("/mnt/sdcard/log.txt", "a");
+		lf = fopen("/mnt/sdcard/logs/picoarch.log", "a");
+		enabled = (lf != NULL) ? 1 : 0;
 	}
 	if (!enabled || !lf) return;
 	va_list ap;
@@ -149,6 +149,38 @@ void dbg_log(const char *fmt, ...) {
 	fflush(lf);
 	/* Keep diagnostics durable without forcing an SD sync for every frame. */
 	if ((++log_lines & 31u) == 0) fsync(fileno(lf));
+}
+
+void core_log_cb(enum retro_log_level level, const char *fmt, ...) {
+    static int enabled = -1;
+    static FILE *lf = NULL;
+	static unsigned log_lines;
+
+    if (enabled == -1) {
+        lf = fopen("/mnt/sdcard/logs/cores.log", "a");
+		enabled = (lf != NULL) ? 1 : 0;
+    }
+
+    if (!enabled || !lf) return;
+
+    char buffer[500];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+
+    const char *level_str = "";
+    switch (level) {
+        case RETRO_LOG_DEBUG: level_str = "DEBUG"; break;
+        case RETRO_LOG_INFO: level_str = "INFO"; break;
+        case RETRO_LOG_WARN: level_str = "WARN"; break;
+        case RETRO_LOG_ERROR: level_str = "ERROR"; break;
+        default: break;
+    }
+    
+    fprintf(lf, "[CORE][%s] %s", level_str, buffer);
+	fflush(lf);
+    if ((++log_lines & 31u) == 0) fsync(fileno(lf));
 }
 
 static void sig_hex(char *b, int *n, unsigned long v) {
@@ -670,33 +702,6 @@ void handle_emu_action(emu_action action)
 	}
 
 	prev_action = action;
-}
-
-void pa_log(enum retro_log_level level, const char *fmt, ...) {
-	char buf[1024] = {0};
-	va_list args;
-	va_start(args, fmt);
-	vsnprintf(buf, sizeof(buf), fmt, args);
-	va_end(args);
-
-	switch(level) {
-#ifdef DEBUG
-	case RETRO_LOG_DEBUG:
-		printf("DEBUG: %s", buf);
-		break;
-#endif
-	case RETRO_LOG_INFO:
-		printf("INFO: %s", buf);
-		break;
-	case RETRO_LOG_WARN:
-		fprintf(stderr, "WARN: %s", buf);
-		break;
-	case RETRO_LOG_ERROR:
-		fprintf(stderr, "ERROR: %s", buf);
-		break;
-	default:
-		break;
-	}
 }
 
 static void show_startup_message(void) {
