@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-cd /home/tomaszz/sf3000-work/picoarch
+cd $HOME/sf3000-work/picoarch
 
 TC="$HOME/sf3000-work/sf3000toolchain/mipsel-buildroot-linux-gnu_sdk-buildroot/opt/ext-toolchain/bin/mips-mti-linux-gnu-"
 SYSROOT="$HOME/sf3000-work/sf3000toolchain/mipsel-buildroot-linux-gnu_sdk-buildroot/mipsel-buildroot-linux-gnu/sysroot"
@@ -23,7 +23,7 @@ make platform=sf3000 \
      CC="${TC}gcc" \
      SYSROOT="${SYSROOT}" \
      CFLAGS="${CC_FLAGS} --sysroot=${SYSROOT} -Wall -fdata-sections -ffunction-sections -I./ -I../FrogUI/common -I./libretro-common/include/ -I${SYSROOT}/usr/include ${SDL_CFLAGS} -DPICO_HOME_DIR='\"/.picoarch/\"' -DCONTENT_DIR='\"/mnt/SDCARD/Roms\"' -DUSE_C_SCALER -DPLATFORM_SF3000 -Ofast -DNDEBUG" \
-     LDFLAGS="${CC_FLAGS} --sysroot=${SYSROOT} -L${SYSROOT}/usr/lib -lc -ldl -lgcc -lm -lSDL -lpng12 -lz -Wl,--gc-sections -lpthread -s" \
+     LDFLAGS="${CC_FLAGS} --sysroot=${SYSROOT} -L${SYSROOT}/usr/lib -lc -ldl -lgcc -lm -lSDL -lpng16 -lz -Wl,--gc-sections -lpthread -s" \
      picoarch \
      -j4 2>&1 | tail -40
 

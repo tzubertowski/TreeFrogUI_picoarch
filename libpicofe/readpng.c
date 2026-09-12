@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <png.h>
+#include <libpng16/png.h>
 #include "readpng.h"
 
 /* libpng 1.4+ uses png_set_longjmp_fn via png_jmpbuf macro.
