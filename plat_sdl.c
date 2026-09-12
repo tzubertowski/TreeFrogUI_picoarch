@@ -1459,6 +1459,7 @@ static struct audio_frame sf3000_aring[SF3000_ARING_FRAMES];
 static unsigned           sf3000_aring_w = 0;   /* producer: emu thread   */
 static unsigned           sf3000_aring_r = 0;   /* consumer: audio thread */
 static unsigned           sf3000_underruns = 0;
+static unsigned           sf3000_starves = 0;   /* substantial holes only (fade branch) */
 static unsigned           sf3000_overruns = 0;
 static pthread_mutex_t    sf3000_aring_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t          sf3000_audio_thread;
@@ -1693,6 +1694,7 @@ static void *sf3000_audio_thread_fn(void *unused)
 					for (unsigned i = 0; i < missing; i++)
 						chunk[take + i] = from;
 				} else {
+					sf3000_starves++;   /* real starvation: emu thread is behind */
 					for (unsigned i = 0; i < missing; i++) {
 						unsigned remain = missing - i - 1;
 						chunk[take + i].left = (int16_t)((int32_t)from.left * remain / missing);
@@ -1976,6 +1978,7 @@ static int plat_sound_init(void)
 		sf3000_i2so_set_volume(0);
 	sf3000_aring_w = sf3000_aring_r = 0;
 	sf3000_underruns = sf3000_overruns = 0;
+	sf3000_starves = 0;
 	sf3000_rs_phase = 0;
 	sf3000_rs_prev.left = sf3000_rs_prev.right = 0;
 	sf3000_audio_init_rc = 0;
@@ -2018,10 +2021,24 @@ static int plat_sound_init(void)
 #endif
 }
 
+/* SF3000: report "underrun likely" only when the audio thread actually had to
+ * conceal missing samples since the previous poll.  main.c derives
+ * underrun_likely from (1 - capacity) < 0.50; the SPSC ring here is ~85 ms with
+ * a 30 ms prefill, so a plain fill ratio sits below 50% in normal operation and
+ * cores with auto frameskip (snes9x2002/2005 defaults in TreeFrogUI) then skip
+ * FRAMESKIP_MAX=30 frames in a row (~2 fps, audio intact).  The old code
+ * returned a constant 1.0 ("empty") which had the same effect.
+ * (2026-09-05, tanakakeisuke, SF3000 HD "H.OS V1.0" unit) */
 float plat_sound_capacity(void)
 {
 #ifdef PLATFORM_SF3000
-	return 1.0;
+	static unsigned last_starves = 0;
+	unsigned now = sf3000_starves;
+	int starved = (now != last_starves);
+	last_starves = now;
+	if (!sf3000_audio_running)
+		return 0.0f;           /* no audio thread: never ask cores to skip */
+	return starved ? 1.0f : 0.0f;  /* 1.0 => occupancy 0 => skip; 0.0 => full */
 #else
 	int buffered = 0;
 	if (audio.buf_len == 0)
