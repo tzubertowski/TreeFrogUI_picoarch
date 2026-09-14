@@ -1257,7 +1257,7 @@ static const struct sf3000_spk_board *sf3000_spk_board_match(void)
 static int sf3000_spk_mute_map(void)
 {
     static int fail_count = 0;
-    if (fail_count < 5) return -1; // Just stop trying to prevent log spam
+    if (fail_count >= 5) return -1; // Just stop trying to prevent log spam
 	const struct sf3000_spk_board *board;
 	if (!sf3000_gate_config()) return -1;   /* user opted out */
 	if (sf3000_gpioL_regs) return 0;
