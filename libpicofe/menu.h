@@ -107,6 +107,7 @@ typedef struct
 {
 	char *name;
 	int mask;
+	const char *config_name;
 } me_bind_action;
 
 extern me_bind_action me_ctrl_actions[];

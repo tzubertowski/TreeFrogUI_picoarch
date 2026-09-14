@@ -54,21 +54,21 @@ typedef enum
 
 me_bind_action me_ctrl_actions[] =
 {
-	{ "UP       ",  1 << RETRO_DEVICE_ID_JOYPAD_UP},
-	{ "DOWN     ",  1 << RETRO_DEVICE_ID_JOYPAD_DOWN },
-	{ "LEFT     ",  1 << RETRO_DEVICE_ID_JOYPAD_LEFT },
-	{ "RIGHT    ",  1 << RETRO_DEVICE_ID_JOYPAD_RIGHT },
-	{ "A BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_A },
-	{ "B BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_B },
-	{ "X BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_X },
-	{ "Y BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_Y },
-	{ "START    ",  1 << RETRO_DEVICE_ID_JOYPAD_START },
-	{ "SELECT   ",  1 << RETRO_DEVICE_ID_JOYPAD_SELECT },
-	{ "L BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_L },
-	{ "R BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_R },
-	{ "L2 BUTTON ", 1 << RETRO_DEVICE_ID_JOYPAD_L2 },
-	{ "R2 BUTTON ", 1 << RETRO_DEVICE_ID_JOYPAD_R2 },
-	{ NULL,       0 }
+	{ "UP       ",  1 << RETRO_DEVICE_ID_JOYPAD_UP,    "UP" },
+	{ "DOWN     ",  1 << RETRO_DEVICE_ID_JOYPAD_DOWN,  "DOWN" },
+	{ "LEFT     ",  1 << RETRO_DEVICE_ID_JOYPAD_LEFT,  "LEFT" },
+	{ "RIGHT    ",  1 << RETRO_DEVICE_ID_JOYPAD_RIGHT, "RIGHT" },
+	{ "A BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_A,     "A BUTTON" },
+	{ "B BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_B,     "B BUTTON" },
+	{ "X BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_X,     "X BUTTON" },
+	{ "Y BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_Y,     "Y BUTTON" },
+	{ "START    ",  1 << RETRO_DEVICE_ID_JOYPAD_START, "START" },
+	{ "SELECT   ",  1 << RETRO_DEVICE_ID_JOYPAD_SELECT,"SELECT" },
+	{ "L BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_L,     "L BUTTON" },
+	{ "R BUTTON ",  1 << RETRO_DEVICE_ID_JOYPAD_R,     "R BUTTON" },
+	{ "L2 BUTTON ", 1 << RETRO_DEVICE_ID_JOYPAD_L2,    "L2 BUTTON" },
+	{ "R2 BUTTON ", 1 << RETRO_DEVICE_ID_JOYPAD_R2,    "R2 BUTTON" },
+	{ NULL,       0,                                    NULL }
 };
 
 /* Must be a superset of all possible actions. This is used when
@@ -76,12 +76,12 @@ me_bind_action me_ctrl_actions[] =
  * it. */
 me_bind_action emuctrl_actions[] =
 {
-	{ "Save State       ", 1 << EACTION_SAVE_STATE },
-	{ "Load State       ", 1 << EACTION_LOAD_STATE },
-	{ "Toggle FPS/CPU%  ", 1 << EACTION_TOGGLE_HUD },
-	{ "Toggle FF        ", 1 << EACTION_TOGGLE_FF },
+	{ "Save State       ", 1 << EACTION_SAVE_STATE, "Save State" },
+	{ "Load State       ", 1 << EACTION_LOAD_STATE, "Load State" },
+	{ "Toggle FPS/CPU%  ", 1 << EACTION_TOGGLE_HUD, "Toggle FPS/CPU%" },
+	{ "Toggle FF        ", 1 << EACTION_TOGGLE_FF, "Toggle FF" },
 	// { "Take Screenshot  ", 1 << EACTION_SCREENSHOT },
-	{ NULL,                0 }
+	{ NULL,                0, NULL }
 };
 
 static int emu_check_save_file(int slot, int *time)

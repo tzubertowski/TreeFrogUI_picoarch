@@ -80,13 +80,13 @@ void config_write_keys(FILE *f)
 			for (i = 0; kbinds && me_ctrl_actions[i].name != NULL; i++) {
 				mask = me_ctrl_actions[i].mask;
 				if (mask & kbinds) {
-					strncpy(act, me_ctrl_actions[i].name, 31);
+					strncpy(act, me_ctrl_actions[i].config_name ?: me_ctrl_actions[i].name, 31);
 					fprintf(f, "bind %s = player1 %s\n", name, mystrip(act));
 					kbinds &= ~mask;
 				}
 				mask = me_ctrl_actions[i].mask << 16;
 				if (mask & kbinds) {
-					strncpy(act, me_ctrl_actions[i].name, 31);
+					strncpy(act, me_ctrl_actions[i].config_name ?: me_ctrl_actions[i].name, 31);
 					fprintf(f, "bind %s = player2 %s\n", name, mystrip(act));
 					kbinds &= ~mask;
 				}
@@ -96,7 +96,7 @@ void config_write_keys(FILE *f)
 			for (i = 0; kbinds && emuctrl_actions[i].name != NULL; i++) {
 				mask = emuctrl_actions[i].mask;
 				if (mask & kbinds) {
-					strncpy(act, emuctrl_actions[i].name, 31);
+					strncpy(act, emuctrl_actions[i].config_name ?: emuctrl_actions[i].name, 31);
 					fprintf(f, "bind %s = %s\n", name, mystrip(act));
 					kbinds &= ~mask;
 				}
@@ -133,12 +133,12 @@ static int parse_bind_val(const char *val, int *type)
 
 		*type = IN_BINDTYPE_PLAYER12;
 		for (i = 0; me_ctrl_actions[i].name != NULL; i++) {
-			if (strncasecmp(me_ctrl_actions[i].name, val + 8, strlen(val + 8)) == 0)
+			if (strncasecmp(me_ctrl_actions[i].config_name ?: me_ctrl_actions[i].name, val + 8, strlen(val + 8)) == 0)
 				return me_ctrl_actions[i].mask << shift;
 		}
 	}
 	for (i = 0; emuctrl_actions[i].name != NULL; i++) {
-		if (strncasecmp(emuctrl_actions[i].name, val, strlen(val)) == 0) {
+		if (strncasecmp(emuctrl_actions[i].config_name ?: emuctrl_actions[i].name, val, strlen(val)) == 0) {
 			*type = IN_BINDTYPE_EMU;
 			return emuctrl_actions[i].mask;
 		}

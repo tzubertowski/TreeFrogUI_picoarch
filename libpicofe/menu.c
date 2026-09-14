@@ -539,7 +539,7 @@ static void menu_draw_begin(int need_bg, int no_borders)
 
 /* Battery indicator in the pause menu (matches FrogUI's). Reads the raw ADC
  * nodes cubevol uses: /dev/check_adc1 = battery byte, /dev/check_adc2 = charging.
- * Same default curve as FrogUI (breakpoints 64/153/224 -> 0/50/100). */
+ * Same default curve as FrogUI (breakpoints 64/153/180 -> 0/50/100). */
 /* battery = /dev/check_adc1, charge detect = /dev/check_adc5 (adc5 ~0 idle,
  * ~140 charging; adc2 doesn't exist on these devices). Persistent O_RDWR fds -
  * these nodes are flaky when reopened per poll. */
@@ -566,11 +566,9 @@ static int menu_battery_pct(int *charging)
 		cached_chg = (a5 >= 64) ? 1 : 0;
 		cached = -1;
 		if (a1 >= 0) {
-			/* Match FrogUI's deliberately broad three-state gauge.  The old
-			 * interpolated curve made the in-game indicator disagree with the
-			 * main menu for the same ADC reading. */
-			if (a1 < 100) cached = 25;
-			else if (a1 < 145) cached = 50;
+			if (a1 <= 64) cached = 0;
+			else if (a1 <= 153) cached = (a1 - 64) * 50 / (153 - 64);
+			else if (a1 < 180) cached = 50 + (a1 - 153) * 50 / (180 - 153);
 			else cached = 100;
 		}
 	}
@@ -755,6 +753,9 @@ static void me_draw(const menu_entry *entries, int sel, void (*draw_more)(void))
 		lprintf("width %d > %d\n", w, g_menuscreen_w);
 		w = g_menuscreen_w;
 	}
+	/* Keep four glyphs free for numeric option values after a long translation. */
+	if (col2_offs > w - me_mfont_w * 6)
+		col2_offs = w - me_mfont_w * 6;
 	if (h > g_menuscreen_h) {
 		lprintf("height %d > %d\n", w, g_menuscreen_h);
 		h = g_menuscreen_h;
@@ -791,7 +792,7 @@ static void me_draw(const menu_entry *entries, int sel, void (*draw_more)(void))
 				name = ent->generate_name(ent->id, &offs);
 		}
 		if (name != NULL) {
-			text_out16(x, y, name);
+			text_out16(x, y, "%s", name);
 			leftname_end = x + (strlen(name) + 1) * me_mfont_w;
 		}
 
