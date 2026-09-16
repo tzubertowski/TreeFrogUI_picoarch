@@ -727,6 +727,9 @@ static menu_entry e_menu_video_options[] =
 	// only show effects on native scale
 static void menu_loop_video_prep(void) {
 	#ifdef PLATFORM_SF3000
+	/* Keep the live pmem reload from restoring the previous value while the
+	 * Volume slider is being edited. */
+	sf3000_apply_snd_gain();
 	/* SF3000/SF3500 expose only the hardware-supported Native and Fill modes.
 	 * R36SX keeps the complete aspect list on its separate display path. */
 	if (!sf3000_is_r36sx()) {

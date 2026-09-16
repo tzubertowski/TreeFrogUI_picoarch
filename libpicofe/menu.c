@@ -26,12 +26,32 @@
 #include "plat.h"
 #include "posix.h"
 #include "frogui_settings.h"
+#include "i18n.h"
 
 #if defined(__GNUC__) && __GNUC__ >= 7
 #pragma GCC diagnostic ignored "-Wformat-truncation"
 #endif
 
 static char static_buff[64];
+
+static const char *localized_action_name(const char *name)
+{
+	if (!strcmp(name, "UP       ")) return tr_or("pico.control.up", name);
+	if (!strcmp(name, "DOWN     ")) return tr_or("pico.control.down", name);
+	if (!strcmp(name, "LEFT     ")) return tr_or("pico.control.left", name);
+	if (!strcmp(name, "RIGHT    ")) return tr_or("pico.control.right", name);
+	if (!strcmp(name, "A BUTTON ")) return tr_or("pico.control.a", name);
+	if (!strcmp(name, "B BUTTON ")) return tr_or("pico.control.b", name);
+	if (!strcmp(name, "X BUTTON ")) return tr_or("pico.control.x", name);
+	if (!strcmp(name, "Y BUTTON ")) return tr_or("pico.control.y", name);
+	if (!strcmp(name, "START    ")) return tr_or("pico.control.start", name);
+	if (!strcmp(name, "SELECT   ")) return tr_or("pico.control.select", name);
+	if (!strcmp(name, "L BUTTON ")) return tr_or("pico.control.l", name);
+	if (!strcmp(name, "R BUTTON ")) return tr_or("pico.control.r", name);
+	if (!strcmp(name, "L2 BUTTON ")) return tr_or("pico.control.l2", name);
+	if (!strcmp(name, "R2 BUTTON ")) return tr_or("pico.control.r2", name);
+	return name;
+}
 static int  menu_error_time = 0;
 char menu_error_msg[64] = { 0, };
 // g_menuscreen is the current output buffer the menu is rendered to.
@@ -803,7 +823,12 @@ static void me_draw(const menu_entry *entries, int sel, void (*draw_more)(void))
 			text_out16(x + col2_offs, y, me_read_onoff(ent) ? "ON" : "OFF");
 			break;
 		case MB_OPT_RANGE:
-			text_out16(x + col2_offs, y, "%i", *(int *)ent->var);
+			{
+				char value[16];
+				snprintf(value, sizeof(value), "%i", *(int *)ent->var);
+				text_out16(x + col2_offs +
+					(3 - (int)strlen(value)) * me_mfont_w, y, "%s", value);
+			}
 			break;
 		case MB_OPT_CUSTOM:
 		case MB_OPT_CUSTONOFF:
@@ -1666,7 +1691,7 @@ static void draw_key_config(const me_bind_action *opts, int opt_cnt, int player_
 		int sel_row = menu_font_ready() && (i == sel);
 		int save_col = menu_text_color;
 		if (sel_row) menu_text_color = menu_sel_text_color;
-		text_out16(x, y, "%s : %s", opts[i].name,
+		text_out16(x, y, "%s : %s", localized_action_name(opts[i].name),
 			action_binds(player_idx, opts[i].mask, dev_id));
 		if (sel_row) menu_text_color = save_col;
 	}
