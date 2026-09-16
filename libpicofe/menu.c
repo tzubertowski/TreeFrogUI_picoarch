@@ -1525,8 +1525,15 @@ static int menu_loop_savestate(int is_loading)
 
 	state_check_slots();
 
-	if (!(state_slot_flags & (1 << menu_sel)) && is_loading)
-		menu_sel = menu_sel_max;
+	if (is_loading) {
+		/* Do not open on the hidden Back row.  That made OK appear to do
+		 * nothing whenever a saved state existed. */
+		for (menu_sel = 0; menu_sel < STATE_SLOT_COUNT; menu_sel++)
+			if (state_slot_flags & (1 << menu_sel))
+				break;
+		if (menu_sel == STATE_SLOT_COUNT)
+			menu_sel = menu_sel_max;
+	}
 
 	/* Drain the OK button that opened this picker before accepting input. A
 	 * held or flickering A would otherwise re-fire save every poll: harmless on
