@@ -129,16 +129,13 @@ static void clear_last_game(void) {
 #endif
 
 void dbg_log(const char *fmt, ...) {
-	/* Write directly to picoarch.log (append) so every picoarch process — including
-	 * the game process exec'd from FrogUI — is captured, regardless of whether
-	 * its stderr is redirected.  The file is created automatically on the
-	 * diagnostic builds; a missing marker must not silently discard the evidence
-	 * needed for display-mode debugging. */
+	/* Diagnostics are opt-in: pre-create log.txt on the card. */
 	static int enabled = -1;
 	static FILE *lf = NULL;
 	static unsigned log_lines;
 	if (enabled == -1) {
-		lf = fopen("/mnt/sdcard/logs/picoarch.log", "a");
+		if (access("/mnt/sdcard/log.txt", F_OK) == 0)
+			lf = fopen("/mnt/sdcard/logs/picoarch.log", "a");
 		enabled = (lf != NULL) ? 1 : 0;
 	}
 	if (!enabled || !lf) return;
@@ -154,10 +151,11 @@ void dbg_log(const char *fmt, ...) {
 void core_log_cb(enum retro_log_level level, const char *fmt, ...) {
     static int enabled = -1;
     static FILE *lf = NULL;
-	static unsigned log_lines;
+    static unsigned log_lines;
 
     if (enabled == -1) {
-        lf = fopen("/mnt/sdcard/logs/cores.log", "a");
+		if (access("/mnt/sdcard/log.txt", F_OK) == 0)
+			lf = fopen("/mnt/sdcard/logs/cores.log", "a");
 		enabled = (lf != NULL) ? 1 : 0;
     }
 
