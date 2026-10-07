@@ -11,6 +11,7 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <dirent.h>
 
 #define FROGUI_CORE "/mnt/sdcard/cubegm/cores/frogui_libretro.so"
 #define PICOARCH_BIN    "/mnt/sdcard/cubegm/picoarch"
@@ -53,6 +54,71 @@ int config_override = 0;
 int g_debug_frame = 0;
 
 #ifdef PLATFORM_SF3000
+static int j2me_memory_profile_enabled;
+
+static long proc_kb(const char *path, const char *key)
+{
+	FILE *f = fopen(path, "r");
+	char line[128];
+	char field[128];
+	long value = -1;
+	if (!f) return value;
+	while (fgets(line, sizeof(line), f)) {
+		if (sscanf(line, "%127[^:]: %ld", field, &value) == 2 && !strcmp(field, key))
+			break;
+		value = -1;
+	}
+	fclose(f);
+	return value;
+}
+
+static void j2me_memory_profile(const char *phase)
+{
+	if (!j2me_memory_profile_enabled) return;
+	FILE *f = fopen("/mnt/sdcard/cubegm/logs/picoarch_j2me_memory.log", "a");
+	if (!f) return;
+	fprintf(f, "phase=%s mem_total_kb=%ld mem_available_kb=%ld mem_free_kb=%ld "
+	           "cached_kb=%ld sreclaimable_kb=%ld shmem_kb=%ld rss_kb=%ld data_kb=%ld\n",
+	        phase,
+	        proc_kb("/proc/meminfo", "MemTotal"),
+	        proc_kb("/proc/meminfo", "MemAvailable"),
+	        proc_kb("/proc/meminfo", "MemFree"),
+	        proc_kb("/proc/meminfo", "Cached"),
+	        proc_kb("/proc/meminfo", "SReclaimable"),
+	        proc_kb("/proc/meminfo", "Shmem"),
+	        proc_kb("/proc/self/status", "VmRSS"),
+	        proc_kb("/proc/self/status", "VmData"));
+	fclose(f);
+}
+
+static void j2me_process_snapshot(void)
+{
+	DIR *dir = opendir("/proc");
+	struct dirent *entry;
+	FILE *out;
+	if (!dir) return;
+	out = fopen("/mnt/sdcard/cubegm/logs/j2me_processes.log", "w");
+	if (!out) { closedir(dir); return; }
+	while ((entry = readdir(dir))) {
+		char status[64], cmdline[256] = "";
+		FILE *cmd;
+		size_t n;
+		if (entry->d_name[0] < '0' || entry->d_name[0] > '9') continue;
+		snprintf(status, sizeof(status), "/proc/%s/status", entry->d_name);
+		snprintf(cmdline, sizeof(cmdline), "/proc/%s/cmdline", entry->d_name);
+		cmd = fopen(cmdline, "r");
+		n = cmd ? fread(cmdline, 1, sizeof(cmdline) - 1, cmd) : 0;
+		if (cmd) fclose(cmd);
+		cmdline[n] = 0;
+		for (size_t i = 0; i < n; i++) if (!cmdline[i]) cmdline[i] = ' ';
+		fprintf(out, "pid=%s rss_kb=%ld data_kb=%ld vm_kb=%ld cmd=%s\n",
+		        entry->d_name, proc_kb(status, "VmRSS"), proc_kb(status, "VmData"),
+		        proc_kb(status, "VmSize"), cmdline);
+	}
+	fclose(out);
+	closedir(dir);
+}
+
 /* FrogUI owns the nearest/bilinear filter choice (single setting, applies to
  * every game).  Picoarch reads /mnt/sdcard/frogui/settings.txt at startup and
  * overrides scale_filter accordingly.  No in-game menu option to change.
@@ -968,14 +1034,23 @@ int main(int argc, char **argv) {
 	 * software volume, so starting it for the launcher leaves audible analogue
 	 * noise even when FrogUI's volume setting is zero. */
 	g_is_frogui = argc > 1 && argv[1] && strcmp(argv[1], FROGUI_CORE) == 0;
+	j2me_memory_profile_enabled = argc > 1 && argv[1] && strstr(argv[1], "j2me_libretro.so");
+	if (j2me_memory_profile_enabled) {
+		mkdir("/mnt/sdcard/cubegm/logs", 0777);
+		unlink("/mnt/sdcard/cubegm/logs/picoarch_j2me_memory.log");
+		j2me_process_snapshot();
+	}
+	j2me_memory_profile("process_start");
 
 	if (plat_init()) {
 		quit(-1);
 	}
+	j2me_memory_profile("platform_ready");
 
 	if (menu_init()) {
 		quit(-1);
 	}
+	j2me_memory_profile("menu_ready");
 
 	if (argc > 1 && argv[1]) {
 		strncpy(core_path, argv[1], sizeof(core_path) - 1);
@@ -999,9 +1074,11 @@ int main(int argc, char **argv) {
 	get_tag_name(content_path, tag_name);
 	core_extract_name(core_path, core_name, sizeof(core_name));
 
+	j2me_memory_profile("core_open_begin");
 	if (core_open(core_path, tag_name)) {
 		quit(-1);
 	}
+	j2me_memory_profile("core_open_done");
 
 	content = content_init(content_path);
 	if (!content) {
@@ -1038,7 +1115,9 @@ int main(int argc, char **argv) {
 	        scale_filter, g_quick_resume, g_autosave_autoload);
 #endif
 	dbg_log("DBG M4: pre core_load\n");
+	j2me_memory_profile("retro_init_begin");
 	core_load();
+	j2me_memory_profile("retro_init_done");
 	dbg_log("DBG M5: core_load done\n");
 
 	if (core_load_content(content)) {

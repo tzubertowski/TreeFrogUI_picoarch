@@ -88,9 +88,7 @@ int menu_font_init(float pixel_height) {
     /* FrogUI's default font first, then monogram as fallback. */
     load_font_file("GamePocket-Regular-ZeroKern.ttf");
     if (!font_loaded) load_font_file("monogram.ttf");
-    /* Keep the compact UI font for Latin, but use the bundled wide Unicode
-     * face for ROM names whose glyphs are absent (CJK, Cyrillic, Greek, etc.). */
-    load_unicode_fallback();
+    /* Unicode fallback is 11 MB. font_for_cp() loads it only when needed. */
     return font_loaded;
 }
 
