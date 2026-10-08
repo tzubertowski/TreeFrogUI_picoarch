@@ -136,6 +136,7 @@ static void j2me_process_snapshot(void)
 static int g_quick_resume = 0;
 static int g_autosave_autoload = 0;
 static int g_brightness = -1;   /* parsed from settings; -1 = absent */
+static int g_stock_battery = 1; /* cubevol indicator; missing setting defaults on */
 /* Apply the FrogUI brightness setting to /dev/backlight. The display driver
  * resets the backlight to default when it re-inits on each game launch, and
  * only FrogUI (the frontend) re-applied it — so games ran at default brightness.
@@ -165,9 +166,10 @@ static void load_frogui_settings(void) {
 	        config_override, scale_filter);
 	g_quick_resume     = frogui_setting_is("auto_resume", "on");
 	g_autosave_autoload = frogui_setting_is("autosave_autoload", "on");
+	g_stock_battery    = !frogui_setting_is("stock_battery", "off");
 	g_brightness       = frogui_setting_int("brightness", -1);   /* applied on game path only */
-	DBG("DBG load_frogui_settings: quick_resume=%d autosave_autoload=%d\n",
-	        g_quick_resume, g_autosave_autoload);
+	DBG("DBG load_frogui_settings: quick_resume=%d autosave_autoload=%d stock_battery=%d\n",
+	        g_quick_resume, g_autosave_autoload, g_stock_battery);
 }
 static int read_last_game(char *core, size_t cs, char *rom, size_t rs) {
 	FILE *f = fopen(LAST_GAME_FILE, "r");
@@ -446,8 +448,14 @@ static void fb1_clear(void) {
 	}
 	if (mem) memset(mem, 0, len);
 }
-/* Only FrogUI restores OSD (via its own retro_init restart). picoarch's
- * menu and game-resume keep fb1 cleared. */
+static void fb1_set_visible(int visible) {
+	int fd = open("/dev/fb1", O_RDWR);
+	if (fd < 0) return;
+	ioctl(fd, FBIOBLANK, visible ? FB_BLANK_UNBLANK : FB_BLANK_NORMAL);
+	close(fd);
+}
+/* Custom mode clears cubevol's OSD. Stock mode blanks the plane during play
+ * without destroying it, then reveals it in PicoArch and FrogUI menus. */
 static void fb1_blank(int blank) {
 	if (!blank) return;
 	if (getenv("PICOARCH_AUTO_RESUME")) {
@@ -467,11 +475,13 @@ static void fb1_blank(int blank) {
 }
 static void fb1_menu_enter(void) {
 	if (g_is_frogui) return;
+	if (g_stock_battery) fb1_set_visible(1);
 	/* Filter is locked per-process (set from FrogUI settings at startup);
 	 * no need to track or react to filter changes mid-game. */
 }
 static void fb1_menu_exit(void) {
 	if (g_is_frogui) return;
+	if (g_stock_battery) fb1_set_visible(0);
 }
 
 void set_defaults(void)
@@ -1128,7 +1138,10 @@ int main(int argc, char **argv) {
 
 	/* Hide cubevol's battery/volume OSD (/dev/fb1) during gameplay. Skipped
 	 * for FrogUI (the menu core) so the menu still shows battery. */
-	if (!g_is_frogui) fb1_blank(1);
+	if (!g_is_frogui) {
+		if (g_stock_battery) fb1_set_visible(0);
+		else fb1_blank(1);
+	}
 
 	load_config_keys();
 
@@ -1188,7 +1201,7 @@ int main(int argc, char **argv) {
 		/* cubevol repaints its fb1 OSD only on a charge-% tick or volume press
 		 * (rare), so re-clearing ~once a minute is plenty to keep it hidden with
 		 * effectively zero in-game cost. */
-		if (!g_is_frogui) {
+		if (!g_is_frogui && !g_stock_battery) {
 			static unsigned fb1_fc = 0;
 			if ((++fb1_fc % 3600) == 0) fb1_clear();
 		}
@@ -1222,10 +1235,9 @@ int quit(int code) {
 	}
 #endif
 	core_unload();
-	/* FrogUI also runs with cubevol's fb1 overlay visible for its battery
-	 * indicator.  On shutdown that layer must be cleared completely; clearing
-	 * only fb0 leaves the old corner glyphs over the shutdown logo. */
-	fb1_clear();
+	/* Preserve and reveal cubevol's stock indicator across the exec back to FrogUI. */
+	if (g_stock_battery) fb1_set_visible(1);
+	else fb1_clear();
 	fb1_blank(0);   /* restore OSD overlay; next process re-blanks if needed */
 
 #ifdef PLATFORM_SF3000

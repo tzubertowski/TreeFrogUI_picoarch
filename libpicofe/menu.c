@@ -607,8 +607,17 @@ static int menu_battery_color_mode(void)
 	return cached;
 }
 
+static int menu_stock_battery_indicator(void)
+{
+	static int cached = -1;
+	if (cached < 0)
+		cached = !frogui_setting_is("stock_battery", "off");
+	return cached;
+}
+
 static void menu_draw_battery(void)
 {
+	if (menu_stock_battery_indicator()) return;
 	int charging, pct = menu_battery_pct(&charging);
 	if (pct < 0) return;
 	if (pct > 100) pct = 100;
