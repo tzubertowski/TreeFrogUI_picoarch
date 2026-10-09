@@ -1164,16 +1164,23 @@ int menu_init(void)
 	/* Load FrogUI's TTF for the menu (no-op + bitmap fallback if unavailable). */
 	menu_font_init((float)MENU_TTF_PX);
 
+	return 0;
+}
+
+int menu_buffers_init(void)
+{
+	if (g_menubg_src_ptr && g_menubg_ptr) return 0;
 	g_menubg_src_ptr = calloc(g_menubg_src_pp * g_menubg_src_h, sizeof(uint16_t));
-	g_menubg_ptr = calloc(g_menuscreen_w * g_menuscreen_pp, sizeof(uint16_t));
+	g_menubg_ptr = calloc(g_menuscreen_h * g_menuscreen_pp, sizeof(uint16_t));
 	if (g_menubg_src_ptr == NULL || g_menubg_ptr == NULL) {
 		fprintf(stderr, "OOM\n");
+		menu_buffers_free();
 		return -1;
 	}
 	return 0;
 }
 
-void menu_finish(void)
+void menu_buffers_free(void)
 {
 	if (g_menubg_src_ptr) {
 		free(g_menubg_src_ptr);
@@ -1184,6 +1191,11 @@ void menu_finish(void)
 		free(g_menubg_ptr);
 		g_menubg_ptr = NULL;
 	}
+}
+
+void menu_finish(void)
+{
+	menu_buffers_free();
 }
 
 static void debug_menu_loop(void)

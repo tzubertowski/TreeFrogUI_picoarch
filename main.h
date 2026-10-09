@@ -38,6 +38,7 @@ extern char save_template_path[MAX_PATH];
  * Create the file to enable logging; delete to silence.  Decision cached on
  * first call. */
 void dbg_log(const char *fmt, ...);
+void memory_profile(const char *phase);
 #define DBG(...) dbg_log(__VA_ARGS__)
 
 #define PA_INFO(...) core_log_cb(RETRO_LOG_INFO, __VA_ARGS__)

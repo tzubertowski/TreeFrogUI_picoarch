@@ -9,16 +9,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
 
 static stbtt_fontinfo font_info;
 static unsigned char *font_buffer = NULL;
+static size_t font_buffer_size = 0;
 static float font_scale = 0.0f;
 static stbtt_fontinfo fallback_info;
 static unsigned char *fallback_buffer = NULL;
+static size_t fallback_buffer_size = 0;
 static float fallback_scale = 0.0f;
 static int fallback_loaded = 0;
 static stbtt_fontinfo latin_info;
 static unsigned char *latin_buffer = NULL;
+static size_t latin_buffer_size = 0;
 static float latin_scale = 0.0f;
 static int latin_loaded = 0;
 static int active_font_id = 0;
@@ -31,7 +36,9 @@ static int unicode_upper(int cp) {
 static int   font_loaded = 0;
 static float font_px = 20.0f;
 
-static int load_font_into(const char *fname, stbtt_fontinfo *info, unsigned char **buffer_out, float *scale_out) {
+static int load_font_into(const char *fname, stbtt_fontinfo *info,
+                          unsigned char **buffer_out, size_t *buffer_size_out,
+                          float *scale_out) {
     char paths[4][256];
     snprintf(paths[0], sizeof(paths[0]), "/mnt/sdcard/cubegm/fonts/%s", fname);
     snprintf(paths[1], sizeof(paths[1]), "/mnt/sdcard/frogui/fonts/%s", fname);
@@ -42,42 +49,40 @@ static int load_font_into(const char *fname, stbtt_fontinfo *info, unsigned char
     for (int i = 0; i < 4; i++) { fp = fopen(paths[i], "rb"); if (fp) break; }
     if (!fp) return 0;
 
-    fseek(fp, 0, SEEK_END);
-    long sz = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    if (sz <= 0) { fclose(fp); return 0; }
-
-    unsigned char *buf = (unsigned char *)malloc(sz);
-    if (!buf) { fclose(fp); return 0; }
-    if (fread(buf, 1, sz, fp) != (size_t)sz) { free(buf); fclose(fp); return 0; }
+    struct stat st;
+    if (fstat(fileno(fp), &st) || st.st_size <= 0) { fclose(fp); return 0; }
+    size_t sz = (size_t)st.st_size;
+    unsigned char *buf = mmap(NULL, sz, PROT_READ, MAP_PRIVATE, fileno(fp), 0);
     fclose(fp);
+    if (buf == MAP_FAILED) return 0;
 
     if (!stbtt_InitFont(info, buf, stbtt_GetFontOffsetForIndex(buf, 0))) {
-        free(buf);
+        munmap(buf, sz);
         return 0;
     }
-    if (*buffer_out) free(*buffer_out);
+    if (*buffer_out) munmap(*buffer_out, *buffer_size_out);
     *buffer_out = buf;
+    *buffer_size_out = sz;
     *scale_out = stbtt_ScaleForPixelHeight(info, font_px);
     return 1;
 }
 
 static int load_font_file(const char *fname) {
-    if (!load_font_into(fname, &font_info, &font_buffer, &font_scale)) return 0;
+    if (!load_font_into(fname, &font_info, &font_buffer, &font_buffer_size, &font_scale)) return 0;
     font_loaded = 1;
     return 1;
 }
 
 static int load_latin_fallback(void) {
     if (latin_loaded) return 1;
-    if (!load_font_into("TreeFrogLatin.ttf", &latin_info, &latin_buffer, &latin_scale)) return 0;
+    if (!load_font_into("TreeFrogLatin.ttf", &latin_info, &latin_buffer, &latin_buffer_size, &latin_scale)) return 0;
     latin_loaded = 1;
     return 1;
 }
 
 static int load_unicode_fallback(void) {
     if (fallback_loaded) return 1;
-    if (!load_font_into("TreeFrogUnicode.ttf", &fallback_info, &fallback_buffer, &fallback_scale)) return 0;
+    if (!load_font_into("TreeFrogUnicode.ttf", &fallback_info, &fallback_buffer, &fallback_buffer_size, &fallback_scale)) return 0;
     fallback_loaded = 1;
     return 1;
 }
@@ -107,7 +112,7 @@ int menu_font_height(void) { return (int)font_px; }
 #define GC_FIRST 32
 #define GC_LAST  126
 #define GC_N     (GC_LAST - GC_FIRST + 1)
-#define GC_MAX   48                 /* max glyph dim cached (menu px ~14 → ~10) */
+#define GC_MAX   24                 /* max glyph dim cached (menu px ~14 → ~10) */
 typedef struct {
     unsigned char ready;            /* 0=empty 1=rasterized 2=blank(space) */
     short w, h, x0, y0;

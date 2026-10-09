@@ -5,6 +5,8 @@
 #include "libpicofe/menu.h"
 
 int menu_init(void);
+int menu_buffers_init(void);
+void menu_buffers_free(void);
 void menu_loop(void);
 int menu_select_core(void);
 int menu_select_content(char *filename, size_t len);

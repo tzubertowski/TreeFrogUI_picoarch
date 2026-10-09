@@ -567,6 +567,8 @@ static bool pa_environment(unsigned cmd, void *data) {
 }
 
 static void pa_video_refresh(const void *data, unsigned width, unsigned height, size_t pitch) {
+	static unsigned profile_frames;
+	static int profile_limit = -1;
 	#ifdef PLATFORM_SF3000
 		/* Trace the callback before filtering NULL/quit frames.  This is the
 		 * authoritative boundary between the libretro core and the frontend. */
@@ -583,6 +585,14 @@ static void pa_video_refresh(const void *data, unsigned width, unsigned height, 
 		pa_track_render();
 		plat_video_process(data, width, height, pitch);
 	}
+	++profile_frames;
+	if (profile_frames == 1) memory_profile("first_video_frame");
+	else if (profile_frames == 60) memory_profile("video_frame_60");
+	if (profile_limit < 0) {
+		const char *limit = getenv("PICOARCH_PROFILE_FRAMES");
+		profile_limit = limit ? atoi(limit) : 0;
+	}
+	if (profile_limit && profile_frames >= (unsigned)profile_limit) should_quit = true;
 }
 
 static void pa_audio_sample(int16_t left, int16_t right) {
@@ -737,13 +747,16 @@ int core_open(const char *corefile, const char *tag_name) {
 
 	PA_INFO("Loading core %s\n", corefile);
 
-	/* Pre-load C++ runtime so cores that need it (e.g. Nestopia) can resolve
-	   their symbols even though libstdc++ isn't a declared NEEDED dependency */
-	dlopen("libstdc++.so.6", RTLD_NOW | RTLD_GLOBAL);
-
 	memset(&current_core, 0, sizeof(current_core));
 	memset(&frame_time_cb_info, 0, sizeof(frame_time_cb_info));
 	current_core.handle = dlopen(corefile, RTLD_NOW | RTLD_GLOBAL);
+	/* Most cores are pure C. Only pay for libstdc++ when an incorrectly linked
+	 * C++ core (for example old Nestopia builds) actually needs the workaround. */
+	if (!current_core.handle) {
+		dlerror();
+		if (dlopen("libstdc++.so.6", RTLD_NOW | RTLD_GLOBAL))
+			current_core.handle = dlopen(corefile, RTLD_NOW | RTLD_GLOBAL);
+	}
 
 	if (!current_core.handle) {
 		PA_ERROR("Couldn't load core: %s\n", dlerror());

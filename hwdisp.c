@@ -356,9 +356,6 @@ static int       g_pad_cap  = 0;
 static int       g_pad_w    = 0;
 static int       g_pad_h    = 0;
 
-/* Nearest-upscale buffer (always 1280x720) */
-static uint16_t *g_near_buf = NULL;
-
 static int g_aspect_num = 0;
 static int g_aspect_den = 0;
 static int g_filter_nearest = 0;   /* SW-scale path (true nearest OR sharp) */
@@ -510,11 +507,6 @@ void hwdisp_set_target_aspect(int num, int den) {
 void hwdisp_set_filter(int filter) {
     g_filter_nearest = (filter != 1);   /* nearest(0) or sharp(2) */
     g_filter_sharp   = (filter == 2);
-    /* If switching to a SW-scale filter, ensure native buffer exists. */
-    if (g_filter_nearest && !g_near_buf) {
-        g_near_buf = (uint16_t*)malloc(HW_BUFSZ);
-        if (g_near_buf) memset(g_near_buf, 0, HW_BUFSZ);
-    }
 }
 
 /* Pad horizontally: src(w×h) → g_pad_buf(pad_w×h), src centered, sides black. */
@@ -560,14 +552,32 @@ static void pad_horizontal(const void *src, int w, int h, int pitch_bytes, int p
 static int g_panel_scale = 2;       /* default full */
 void hwdisp_set_panel_scale(int m) { g_panel_scale = m; }
 
+/* Every R36SX software-scaling route is mutually exclusive per frame and its
+ * output fits the 640x480 panel. Share one DMA-safe ping-pong pair instead of
+ * retaining a separate pair for nearest, sharp, integer and direct copies. */
+static uint16_t *g_stage[2];
+static int g_stage_i;
+static unsigned char g_stage_owner[2];
+enum { STAGE_PANEL = 1, STAGE_INTEGER, STAGE_PRESCALE, STAGE_DIRECT };
+static uint16_t *stage_next(int owner, int *slot)
+{
+    int i = g_stage_i;
+    g_stage_i ^= 1;
+    if (!g_stage[i]) g_stage[i] = (uint16_t *)malloc(PANEL_PW * PANEL_PH * 2);
+    if (g_stage[i] && g_stage_owner[i] != owner) {
+        memset(g_stage[i], 0, PANEL_PW * PANEL_PH * 2);
+        g_stage_owner[i] = owner;
+    }
+    if (slot) *slot = i;
+    return g_stage[i];
+}
+
 /* Cheap Integer-mode staging shared by SF-class and R36SX. Instead of expanding
  * to the complete panel in software, center the native frame in a panel/N
  * envelope and let HCGE supply the N enlargement. Keep two buffers because the
  * driver's DMA can still be reading the previously submitted frame. */
 #define INT_ENV_MAX_W 854
 #define INT_ENV_MAX_H 480
-static uint16_t *g_int_env[2];
-static int g_int_env_i;
 static int g_int_env_w[2], g_int_env_h[2];
 static int g_int_src_w[2], g_int_src_h[2];
 
@@ -587,15 +597,10 @@ static uint16_t *integer_envelope_build(const void *src, int w, int h,
     if (eh < h) eh = h;
     if (ew > INT_ENV_MAX_W || eh > INT_ENV_MAX_H) return NULL;
 
-    if (!g_int_env[0])
-        g_int_env[0] = (uint16_t *)malloc(INT_ENV_MAX_W * INT_ENV_MAX_H * 2);
-    if (!g_int_env[1])
-        g_int_env[1] = (uint16_t *)malloc(INT_ENV_MAX_W * INT_ENV_MAX_H * 2);
-    if (!g_int_env[0] || !g_int_env[1]) return NULL;
-
-    int bi = g_int_env_i;
-    g_int_env_i ^= 1;
-    uint16_t *dst = g_int_env[bi];
+    if (ew > PANEL_PW || eh > PANEL_PH) return NULL;
+    int bi;
+    uint16_t *dst = stage_next(STAGE_INTEGER, &bi);
+    if (!dst) return NULL;
     if (g_int_env_w[bi] != ew || g_int_env_h[bi] != eh ||
         g_int_src_w[bi] != w || g_int_src_h[bi] != h) {
         memset(dst, 0, (size_t)ew * eh * 2);
@@ -620,10 +625,10 @@ static uint16_t *integer_envelope_build(const void *src, int w, int h,
 /* mode: 0=integer replicate (exact NxN, centered), 1=aspect-fit nearest stretch
  * (centered, bars), 2=full nearest stretch (fills panel). All nearest → sharp. */
 static uint16_t *panel_build(const void *src, int w, int h, int pitch_bytes, int mode) {
-    static uint16_t *pb[2]; static unsigned pbgeo[2]; static int pbi;
-    pbi ^= 1;
-    if (!pb[pbi]) { pb[pbi] = (uint16_t*)malloc(PANEL_PW*PANEL_PH*2); if (!pb[pbi]) return NULL; pbgeo[pbi] = 0; }
-    uint16_t *d = pb[pbi];
+    static unsigned pbgeo[2];
+    int pbi;
+    uint16_t *d = stage_next(STAGE_PANEL, &pbi);
+    if (!d) return NULL;
     const int sp = pitch_bytes/2; const uint16_t *s = (const uint16_t*)src;
     if (mode == 0) {
         int n = PANEL_PW/w; int ny = PANEL_PH/h; if (ny<n) n=ny; if (n<1) n=1;
@@ -682,10 +687,8 @@ static uint16_t *panel_build(const void *src, int w, int h, int pitch_bytes, int
  * stretch to 640x480, and near-nearest sharp (pixels already n×-doubled). */
 static uint16_t *prescale_int(const void *src, int w, int h, int pitch_bytes,
                               int n, int *out_w, int *out_h) {
-    static uint16_t *pb[2]; static int pbi;
-    pbi ^= 1;
-    if (!pb[pbi]) { pb[pbi] = (uint16_t*)malloc(PANEL_PW*PANEL_PH*2); if (!pb[pbi]) return NULL; }
-    uint16_t *d = pb[pbi];
+    uint16_t *d = stage_next(STAGE_PRESCALE, NULL);
+    if (!d) return NULL;
     const int sp = pitch_bytes/2; const uint16_t *s = (const uint16_t*)src;
     int dw = w * n;
     for (int y=0; y<h; y++){
@@ -781,14 +784,13 @@ int hwdisp_present_direct(const void *src, int w, int h, int pitch_bytes) {
      * buffer races the next frame's rendering (font/pixel shimmer during menu
      * scrolling on R36SX). Stage into ping-pong buffers so the engine always
      * scans a stable copy. panel_build output is already ping-ponged — skip. */
-    static uint16_t *g_dpp[2];
-    static int g_dppi;
-    if (!g_dpp[0]) { g_dpp[0] = (uint16_t*)malloc(PANEL_PW*PANEL_PH*2); g_dpp[1] = (uint16_t*)malloc(PANEL_PW*PANEL_PH*2); }
-    if (!staged && g_dpp[0] && g_dpp[1] && pw <= PANEL_PW && ph <= PANEL_PH) {
-        uint16_t *dst = g_dpp[g_dppi]; g_dppi ^= 1;
+    if (!staged && pw <= PANEL_PW && ph <= PANEL_PH) {
+        uint16_t *dst = stage_next(STAGE_DIRECT, NULL);
+        if (dst) {
         for (int y = 0; y < ph; y++)
             memcpy(dst + (size_t)y*pw, (const uint8_t*)psrc + (size_t)y*ppitch, (size_t)pw*2);
         psrc = dst; ppitch = pw*2;
+        }
     }
     if (lg) DBG("DBG present_direct#%d: pre disp_frame %dx%d scale=%d\n", s_n, pw, ph, g_panel_scale);
     int rv = p_disp((void *)psrc, pw, ph, ppitch);
@@ -1004,10 +1006,10 @@ void hwdisp_deinit(void) {
     sf3000_dump_fb_state("hwdisp_deinit/post-p_deinit");
     clear_fb0_for_shutdown();
     if (g_pad_buf) { free(g_pad_buf); g_pad_buf = NULL; g_pad_cap = 0; g_pad_w = 0; g_pad_h = 0; }
-    if (g_near_buf) { free(g_near_buf); g_near_buf = NULL; }
-    if (g_int_env[0]) { free(g_int_env[0]); g_int_env[0] = NULL; }
-    if (g_int_env[1]) { free(g_int_env[1]); g_int_env[1] = NULL; }
-    g_int_env_i = 0;
+    if (g_stage[0]) { free(g_stage[0]); g_stage[0] = NULL; }
+    if (g_stage[1]) { free(g_stage[1]); g_stage[1] = NULL; }
+    g_stage_i = 0;
+    g_stage_owner[0] = g_stage_owner[1] = 0;
     g_int_env_w[0] = g_int_env_w[1] = 0;
     g_int_env_h[0] = g_int_env_h[1] = 0;
     g_int_src_w[0] = g_int_src_w[1] = 0;

@@ -843,6 +843,8 @@ static void sf3000_capture_menubg(void)
 
 void plat_video_menu_enter(int is_rom_loaded)
 {
+	if (menu_buffers_init()) PA_FATAL("Couldn't allocate menu buffers\n");
+	memory_profile("menu_enter");
 	SDL_LockSurface(screen);
 #ifdef PLATFORM_SF3000
 	sf3000_capture_menubg();
@@ -885,6 +887,8 @@ void plat_video_menu_leave(void)
 	SDL_UnlockSurface(screen);
 
 	g_menuscreen_ptr = NULL;
+	menu_buffers_free();
+	memory_profile("menu_leave");
 }
 
 void plat_video_open(void)
@@ -2426,6 +2430,17 @@ int sf3000_fb_init(void) {
      * reads it (single binary → SF3000 854x480 or R36SX 640x480). */
     { extern void sf3000_detect_device(void); sf3000_detect_device(); }
 
+    /* User-mode QEMU has no framebuffer devices. A tiny driver shim still lets
+     * us execute and measure the real R36SX allocation/render path. */
+    if (getenv("PICOARCH_QEMU")) {
+        extern int hwdisp_init(void);
+        if (hwdisp_init() == 0) {
+            sf3000_use_hwdisp = 1;
+            return 0;
+        }
+        return -1;
+    }
+
     /* SF-class devices are hardware-present only. The stock/decrypted driver
      * owns the portrait framebuffer geometry and HCGE performs the panel
      * transform/scaling. Do not touch fb0 with FBIOPUT, mmap it, or fall back
@@ -2808,6 +2823,8 @@ int sf3000_aspect_is_43(void) { sf3000_detect_device(); return g_dev_r36sx > 0 |
  * at runtime (zhijack) and ship it AS driver_sf3500.so — a real ELF picoarch can
  * dlopen for HW video + audio. */
 const char *sf3000_driver_path(void) {
+    const char *override = getenv("PICOARCH_DRIVER");
+    if (override && *override) return override; /* QEMU/profiling driver shim */
     sf3000_detect_device();
     switch (g_dev_id) {
     case TF_DEV_R36SX:  return "/mnt/sdcard/cubegm/driver_r36sx.so";

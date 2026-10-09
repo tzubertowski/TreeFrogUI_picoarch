@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <dirent.h>
+#include <malloc.h>
 
 #define FROGUI_CORE "/mnt/sdcard/cubegm/cores/frogui_libretro.so"
 #define PICOARCH_BIN    "/mnt/sdcard/cubegm/picoarch"
@@ -52,9 +53,10 @@ unsigned current_audio_buffer_size;
 char core_name[MAX_PATH];
 int config_override = 0;
 int g_debug_frame = 0;
+static int g_stock_battery = 1; /* SF3000 cubevol indicator; harmless elsewhere */
 
-#ifdef PLATFORM_SF3000
-static int j2me_memory_profile_enabled;
+static int memory_profile_enabled;
+static const char *memory_profile_path;
 
 static long proc_kb(const char *path, const char *key)
 {
@@ -72,13 +74,15 @@ static long proc_kb(const char *path, const char *key)
 	return value;
 }
 
-static void j2me_memory_profile(const char *phase)
+void memory_profile(const char *phase)
 {
-	if (!j2me_memory_profile_enabled) return;
-	FILE *f = fopen("/mnt/sdcard/cubegm/logs/picoarch_j2me_memory.log", "a");
+	if (!memory_profile_enabled) return;
+	FILE *f = fopen(memory_profile_path, "a");
 	if (!f) return;
+	struct mallinfo mi = mallinfo();
 	fprintf(f, "phase=%s mem_total_kb=%ld mem_available_kb=%ld mem_free_kb=%ld "
-	           "cached_kb=%ld sreclaimable_kb=%ld shmem_kb=%ld rss_kb=%ld data_kb=%ld\n",
+	           "cached_kb=%ld sreclaimable_kb=%ld shmem_kb=%ld rss_kb=%ld data_kb=%ld "
+	           "heap_used_kb=%d heap_free_kb=%d heap_arena_kb=%d mmap_kb=%d\n",
 	        phase,
 	        proc_kb("/proc/meminfo", "MemTotal"),
 	        proc_kb("/proc/meminfo", "MemAvailable"),
@@ -87,10 +91,13 @@ static void j2me_memory_profile(const char *phase)
 	        proc_kb("/proc/meminfo", "SReclaimable"),
 	        proc_kb("/proc/meminfo", "Shmem"),
 	        proc_kb("/proc/self/status", "VmRSS"),
-	        proc_kb("/proc/self/status", "VmData"));
+	        proc_kb("/proc/self/status", "VmData"),
+	        mi.uordblks / 1024, mi.fordblks / 1024,
+	        mi.arena / 1024, mi.hblkhd / 1024);
 	fclose(f);
 }
 
+#ifdef PLATFORM_SF3000
 static void j2me_process_snapshot(void)
 {
 	DIR *dir = opendir("/proc");
@@ -136,7 +143,6 @@ static void j2me_process_snapshot(void)
 static int g_quick_resume = 0;
 static int g_autosave_autoload = 0;
 static int g_brightness = -1;   /* parsed from settings; -1 = absent */
-static int g_stock_battery = 1; /* cubevol indicator; missing setting defaults on */
 /* Apply the FrogUI brightness setting to /dev/backlight. The display driver
  * resets the backlight to default when it re-inits on each game launch, and
  * only FrogUI (the frontend) re-applied it — so games ran at default brightness.
@@ -894,6 +900,7 @@ static void get_tag_name(const char* in_path, char* out_tag) {
  * it (its +1 advance is discarded by the next step) → motion goes backward.
  * Capped by a RAM budget; disabled for cores whose state is too big. */
 #define REWIND_BUDGET (16 * 1024 * 1024)
+#define REWIND_BUDGET_R36SX (4 * 1024 * 1024)
 #define REWIND_INTERVAL 6              /* capture every 6 frames (~10Hz) */
 static unsigned char *g_rw_buf  = NULL;
 static size_t         g_rw_ssize = 0;
@@ -908,9 +915,11 @@ static void rewind_init(void) {
 		DBG("DBG rewind: disabled for picodrive (serialize size unreliable)\n");
 		return;
 	}
+	extern int sf3000_is_r36sx(void);
+	size_t budget = sf3000_is_r36sx() ? REWIND_BUDGET_R36SX : REWIND_BUDGET;
 	size_t s = current_core.retro_serialize_size();
-	if (s == 0 || s > REWIND_BUDGET) return;
-	int cap = (int)(REWIND_BUDGET / s);
+	if (s == 0 || s > budget) return;
+	int cap = (int)(budget / s);
 	if (cap < 2) return;
 	if (cap > 1200) cap = 1200;          /* ~20s @60fps */
 	g_rw_buf = malloc((size_t)cap * s);
@@ -929,7 +938,10 @@ static void rewind_apply(void) {
 		g_rw_cap = g_rw_count = g_rw_head = 0; g_rw_ssize = 0;
 	}
 }
-
+#else
+static void rewind_apply(void) { }
+#endif
+#ifdef PLATFORM_SF3000
 static void rewind_capture(void) {
 	if (!g_rw_buf) return;
 	if (current_core.retro_serialize(g_rw_buf + (size_t)g_rw_head * g_rw_ssize, g_rw_ssize)) {
@@ -1044,23 +1056,29 @@ int main(int argc, char **argv) {
 	 * software volume, so starting it for the launcher leaves audible analogue
 	 * noise even when FrogUI's volume setting is zero. */
 	g_is_frogui = argc > 1 && argv[1] && strcmp(argv[1], FROGUI_CORE) == 0;
-	j2me_memory_profile_enabled = argc > 1 && argv[1] && strstr(argv[1], "j2me_libretro.so");
-	if (j2me_memory_profile_enabled) {
+	const char *profile_env = getenv("PICOARCH_MEMORY_PROFILE");
+	int j2me_profile = argc > 1 && argv[1] && strstr(argv[1], "j2me_libretro.so");
+	memory_profile_enabled = j2me_profile || (profile_env && *profile_env);
+	memory_profile_path = (profile_env && *profile_env) ? profile_env :
+		"/mnt/sdcard/cubegm/logs/picoarch_j2me_memory.log";
+	if (j2me_profile) {
 		mkdir("/mnt/sdcard/cubegm/logs", 0777);
-		unlink("/mnt/sdcard/cubegm/logs/picoarch_j2me_memory.log");
+		unlink(memory_profile_path);
+		#ifdef PLATFORM_SF3000
 		j2me_process_snapshot();
+		#endif
 	}
-	j2me_memory_profile("process_start");
+	memory_profile("process_start");
 
 	if (plat_init()) {
 		quit(-1);
 	}
-	j2me_memory_profile("platform_ready");
+	memory_profile("platform_ready");
 
 	if (menu_init()) {
 		quit(-1);
 	}
-	j2me_memory_profile("menu_ready");
+	memory_profile("menu_ready");
 
 	if (argc > 1 && argv[1]) {
 		strncpy(core_path, argv[1], sizeof(core_path) - 1);
@@ -1084,11 +1102,11 @@ int main(int argc, char **argv) {
 	get_tag_name(content_path, tag_name);
 	core_extract_name(core_path, core_name, sizeof(core_name));
 
-	j2me_memory_profile("core_open_begin");
+	memory_profile("core_open_begin");
 	if (core_open(core_path, tag_name)) {
 		quit(-1);
 	}
-	j2me_memory_profile("core_open_done");
+	memory_profile("core_open_done");
 
 	content = content_init(content_path);
 	if (!content) {
@@ -1125,14 +1143,15 @@ int main(int argc, char **argv) {
 	        scale_filter, g_quick_resume, g_autosave_autoload);
 #endif
 	dbg_log("DBG M4: pre core_load\n");
-	j2me_memory_profile("retro_init_begin");
+	memory_profile("retro_init_begin");
 	core_load();
-	j2me_memory_profile("retro_init_done");
+	memory_profile("retro_init_done");
 	dbg_log("DBG M5: core_load done\n");
 
 	if (core_load_content(content)) {
 		quit(-1);
 	}
+	memory_profile("content_loaded");
 	dbg_log("DBG M6: content loaded, entering run loop\n");
 	unlink("/tmp/resume_tries");   /* content runs: reset the quick-resume failure cap */
 
