@@ -4,7 +4,7 @@ static const struct core_override_option snes9x2002_core_option_overrides[] = {
 	{
 		.key = "snes9x2002_frameskip",
 		.info = "Skip frames to avoid audio crackling. Improves performance at the expense of visual smoothness.",
-		.default_value = "auto",
+		.default_value = "disabled",
 		.retro_var_value = "Frameskip ; disabled|auto|threshold"
 	},
 	{

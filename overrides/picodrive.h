@@ -40,6 +40,7 @@ static const struct core_override_option picodrive_core_option_overrides[] = {
 	{
 		.key = "picodrive_frameskip",
 		.info = "Skip frames to avoid audio crackling. Improves performance at the expense of visual smoothness.",
+		.default_value = "disabled",
 	},
 	{
 		.key = "picodrive_frameskip_threshold",
