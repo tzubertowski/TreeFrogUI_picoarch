@@ -1,5 +1,8 @@
 #include <SDL/SDL.h>
 #include <unistd.h>
+#include <sched.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
 #include <sys/time.h>
 #include <dlfcn.h>
 #include <dirent.h>
@@ -1454,10 +1457,10 @@ static void sf3000_reload_snd_gain_live(void) {
  * sound_driver_playframe() DAC write. The emu thread only enqueues into this
  * SPSC ring and never blocks, so audio over/underrun can never freeze the
  * emulator. Video stays the sole frame pacer. */
-#define SF3000_ARING_FRAMES 4096          /* power of two, ~85ms @ 48000Hz */
+#define SF3000_ARING_FRAMES 8192          /* power of two, ~170ms @ 48000Hz */
 #define SF3000_ARING_MASK   (SF3000_ARING_FRAMES - 1)
 #define SF3000_ACHUNK       480           /* 10ms at the fixed 48kHz DAC rate */
-#define SF3000_APREFILL     1440          /* 30ms cushion for expensive scaled frames */
+#define SF3000_APREFILL     2400          /* 50ms cushion for expensive scaled frames */
 
 static struct audio_frame sf3000_aring[SF3000_ARING_FRAMES];
 static unsigned           sf3000_aring_w = 0;   /* producer: emu thread   */
@@ -1473,6 +1476,35 @@ static uint32_t           sf3000_rs_phase = 0;  /* linear-resample phase, 16.16 
 static struct audio_frame sf3000_rs_prev;       /* previous input frame */
 
 static volatile int sf3000_audio_init_rc = 0;   /* 0=pending, 1=ok, -1=failed */
+
+static void sf3000_audio_boost_priority(void)
+{
+	struct sched_param param;
+	int rc;
+
+	/* Prefer round-robin RT scheduling: the audio thread wakes in 10 ms
+	 * quanta and always yields after the driver write.  Not every stock
+	 * firmware grants CAP_SYS_NICE, so failure is deliberately non-fatal. */
+	memset(&param, 0, sizeof param);
+	param.sched_priority = 1;
+	rc = pthread_setschedparam(pthread_self(), SCHED_RR, &param);
+	if (rc == 0) {
+		dbg_log("DBG A: audio thread priority=SCHED_RR/1\n");
+		return;
+	}
+
+	/* A modest nice boost is useful on kernels without RT permissions. Linux
+	 * exposes per-thread nice values through the thread id, not pthread_t. */
+	{
+		pid_t tid = (pid_t)syscall(SYS_gettid);
+		if (setpriority(PRIO_PROCESS, tid, -5) == 0) {
+			dbg_log("DBG A: audio thread priority=nice -5\n");
+			return;
+		}
+	}
+	dbg_log("DBG A: audio priority boost unavailable rr=%d errno=%d\n",
+	        rc, errno);
+}
 
 /* AUDDEC/I2SO can survive a process transition in a half-alive state: init
  * reports success, but no samples reach the speaker until another application
@@ -1509,6 +1541,7 @@ static int sf3000_audio_driver_start(int clean_cycle)
 static void *sf3000_audio_thread_fn(void *unused)
 {
 	(void)unused;
+	sf3000_audio_boost_priority();
 	struct audio_frame chunk[SF3000_ACHUNK];
 	uint64_t next_us = 0;
 	uint64_t last_real_us = 0;   /* last consumed REAL audio (MONOTONIC) */
