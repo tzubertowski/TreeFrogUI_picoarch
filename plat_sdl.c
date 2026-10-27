@@ -1244,12 +1244,12 @@ static void sf3000_reload_snd_gain_live(void) {
 #define SF3000_ARING_FRAMES 4096          /* power of two, ~85ms @ 48000Hz */
 #define SF3000_ARING_MASK   (SF3000_ARING_FRAMES - 1)
 #define SF3000_ACHUNK       480           /* 10ms at the fixed 48kHz DAC rate */
-#define SF3000_APREFILL     1440          /* 30ms cushion for expensive scaled frames */
+#define SF3000_APREFILL     2400          /* 50ms cushion for expensive scaled frames */
+#define SF3000_AGRACE_POLLS 6             /* tolerate 12ms of producer jitter */
 
 static struct audio_frame sf3000_aring[SF3000_ARING_FRAMES];
 static unsigned           sf3000_aring_w = 0;   /* producer: emu thread   */
 static unsigned           sf3000_aring_r = 0;   /* consumer: audio thread */
-static unsigned           sf3000_underruns = 0;
 static unsigned           sf3000_overruns = 0;
 static pthread_mutex_t    sf3000_aring_mtx = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t          sf3000_audio_thread;
@@ -1300,14 +1300,14 @@ static void *sf3000_audio_thread_fn(void *unused)
 	uint64_t next_us = 0;
 	int primed = 0;
 	int driver_active = 0;
-	int recovering = 0;
+	int short_polls = 0;
 	/* LAUNCHER MODE: g_is_frogui IS the single authoritative value (set once
 	 * in main() before plat_init, never mutated after).  Reading it here
 	 * directly - no copied launcher flag that could drift from the real
 	 * process state (review: one authoritative mode/state value). */
 	extern int g_is_frogui;
 #define launcher (g_is_frogui)
-	unsigned gain_reload_polls = 0;	struct audio_frame last = { 0, 0 };
+	unsigned gain_reload_polls = 0;
 
 	/* Init the DAC ON THIS THREAD. The SF3500/HD/SF3100 driver keeps its audio
 	 * handle thread-local, so sound_driver_init() and sound_driver_playframe()
@@ -1348,8 +1348,7 @@ static void *sf3000_audio_thread_fn(void *unused)
 			pthread_mutex_unlock(&sf3000_aring_mtx);
 			primed = 0;
 			next_us = 0;
-			recovering = 0;
-			last.left = last.right = 0;
+			short_polls = 0;
 			usleep(2000);
 			continue;
 		}
@@ -1366,78 +1365,31 @@ static void *sf3000_audio_thread_fn(void *unused)
 		 * 48kHz instead of inheriting that burst cadence. */
 		if (!primed && avail >= (launcher ? 1u : SF3000_APREFILL))
 			primed = 1;
-		if (primed) {
-			unsigned take = avail < SF3000_ACHUNK ? avail : SF3000_ACHUNK;
-			/* LAUNCHER: a tick is a discrete event.  Once its content is
-			 * spent (take==0, nothing but concealment would follow), drop
-			 * the primed state so the next tick starts cleanly. Games keep
-			 * the stock concealment cadence (anti-crackle). */
-			if (launcher && take == 0) {
-				primed = 0;
-				next_us = 0;
-				recovering = 0;
-				pthread_mutex_unlock(&sf3000_aring_mtx);
-				continue;
+		if (primed && avail >= SF3000_ACHUNK) {
+			for (int i = 0; i < SF3000_ACHUNK; i++) {
+				chunk[i] = sf3000_aring[sf3000_aring_r & SF3000_ARING_MASK];
+				sf3000_aring_r++;
 			}
+			have_chunk = 1;
+			short_polls = 0;
+		} else if (launcher && primed && avail > 0) {
+			/* Menu sounds are discrete events; pad their final partial chunk with silence. */
+			unsigned take = avail;
 			for (unsigned i = 0; i < take; i++) {
 				chunk[i] = sf3000_aring[sf3000_aring_r & SF3000_ARING_MASK];
 				sf3000_aring_r++;
 			}
-			/* Blend from the preceding concealed tail into newly available audio
-			 * instead of jumping straight to an arbitrary sample.  For a long stall
-			 * `last` is zero; for a short miss it is the held waveform sample. */
-			if (recovering && take) {
-				unsigned fade = take < 64 ? take : 64;
-				for (unsigned i = 0; i < fade; i++) {
-					int32_t ldelta = (int32_t)chunk[i].left - last.left;
-					int32_t rdelta = (int32_t)chunk[i].right - last.right;
-					chunk[i].left = (int16_t)(last.left + ldelta * (i + 1) / fade);
-					chunk[i].right = (int16_t)(last.right + rdelta * (i + 1) / fade);
-				}
-				recovering = 0;
-			}
-		/* Never starve the proprietary driver once playback has started.
-		 * Stopping writes until a full re-prime made a brief scheduling miss
-		 * turn into a 30ms hole, and restarting on an arbitrary waveform edge
-		 * produced the reported crackle.  Preserve cadence and ramp the missing
-		 * tail to zero instead.  Usually this conceals only a handful of frames.
-		 * LAUNCHER: a tick is DISCRETE - what follows its last sample is
-		 * digital silence by design, so pad any shortage with pure zeros.
-		 * Holding the last edge here (fine for games) played a short burst
-		 * of the tick's tail amplitude at the end of each blip - the brief
-		 * static heard on-device after every menu tick. */
-		if (take < SF3000_ACHUNK) {
-			unsigned missing = SF3000_ACHUNK - take;
-			if (launcher) {
-				for (unsigned i = 0; i < missing; i++) {
-					chunk[take + i].left = 0;
-					chunk[take + i].right = 0;
-				}
-			} else {
-				struct audio_frame from = take ? chunk[take - 1] : last;
-				/* Tiny SNES shortages (often just 2--60 frames) must not be
-				 * amplified into a full fade-to-zero.  Hold the edge for up to
-				 * 3.3ms; reserve silence fading for a substantial stall. */
-				if (missing <= 160) {
-					for (unsigned i = 0; i < missing; i++)
-						chunk[take + i] = from;
-				} else {
-					for (unsigned i = 0; i < missing; i++) {
-						unsigned remain = missing - i - 1;
-						chunk[take + i].left = (int16_t)((int32_t)from.left * remain / missing);
-						chunk[take + i].right = (int16_t)((int32_t)from.right * remain / missing);
-					}
-				}
-			}
-			if (++sf3000_underruns <= 8 ||
-			    !(sf3000_underruns & (sf3000_underruns - 1)))
-				dbg_log("DBG A: underrun #%u: had %u/%u frames (overruns=%u)\n",
-				        sf3000_underruns, take, SF3000_ACHUNK,
-				        sf3000_overruns);
-			recovering = 1;
-		}
-			last = chunk[SF3000_ACHUNK - 1];
+			for (unsigned i = take; i < SF3000_ACHUNK; i++)
+				chunk[i].left = chunk[i].right = 0;
+			primed = 0;
+			next_us = 0;
 			have_chunk = 1;
+		} else if (primed && avail < SF3000_ACHUNK) {
+			if (++short_polls >= SF3000_AGRACE_POLLS) {
+				primed = 0;
+				short_polls = 0;
+				next_us = 0;
+			}
 		}
 		pthread_mutex_unlock(&sf3000_aring_mtx);
 
@@ -1497,8 +1449,7 @@ static void *sf3000_audio_thread_fn(void *unused)
 			pthread_mutex_unlock(&sf3000_aring_mtx);
 			primed = 0;
 			next_us = 0;
-			recovering = 0;
-			last.left = last.right = 0;
+			short_polls = 0;
 			dbg_log("DBG A: runtime audio recovery OK\n");
 			continue;
 		}
@@ -1653,7 +1604,7 @@ static int plat_sound_init(void)
 	if (sf3000_snd_gain_pct == 0)
 		sf3000_i2so_set_volume(0);
 	sf3000_aring_w = sf3000_aring_r = 0;
-	sf3000_underruns = sf3000_overruns = 0;
+	sf3000_overruns = 0;
 	sf3000_rs_phase = 0;
 	sf3000_rs_prev.left = sf3000_rs_prev.right = 0;
 	sf3000_audio_init_rc = 0;
@@ -1738,18 +1689,8 @@ void plat_sound_write(const struct audio_frame *data, int frames)
 		int in_rate = audio.in_sample_rate > 0
 			? audio.in_sample_rate : audio.out_sample_rate;
 		pthread_mutex_lock(&sf3000_aring_mtx);
-		/* Phase step per output sample, 16.16 fixed: in_rate/out_rate.
-		 * The emulation and DAC clocks are independent and differ slightly on
-		 * real units (F-Zero drained a few dozen frames every few seconds despite
-		 * nominally exact rates).  Nudge the existing resampler by only 1/512
-		 * according to queue occupancy.  This keeps the ring centred without an
-		 * extra operation in the per-sample loop or an audible pitch change. */
+		/* Phase step per output sample, 16.16 fixed: in_rate/out_rate. */
 		uint32_t step = (uint32_t)(((uint64_t)in_rate << 16) / audio.out_sample_rate);
-		unsigned queued = sf3000_aring_w - sf3000_aring_r;
-		if (queued < SF3000_ARING_FRAMES / 2)
-			step -= step >> 9; /* low queue: stretch by ~0.2% */
-		else if (queued > SF3000_ARING_FRAMES * 3 / 4)
-			step += step >> 9; /* high queue: contract by ~0.2% */
 		for (int i = 0; i < frames; i++) {
 			struct audio_frame cur = data[i];
 			/* emit outputs positioned between prev and cur */

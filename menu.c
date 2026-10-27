@@ -743,8 +743,8 @@ static const char h_sf3000_volume[] =
 	"volume steps are actually quiet (the stock volume\n"
 	"curve is loud). 100 = full. Saved to sndgain.txt.";
 static const char h_sf3000_mono[] =
-	"Mix both stereo channels into the handheld's speaker.\n"
-	"Disable only when using stereo-capable external audio.";
+	"Mix both stereo channels into the handheld's speaker. Off\n"
+	"by default; enable if one channel is missing.";
 static const char h_sf3000_sharpness[] =
 	"Hardware edge-sharpen for scaled video (0=off, 10=max).\n"
 	"Crisps up the display's bilinear scaling. Per-game.";
