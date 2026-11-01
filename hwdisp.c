@@ -682,6 +682,38 @@ static uint16_t *panel_build(const void *src, int w, int h, int pitch_bytes, int
     return d;
 }
 
+/* Reshape only the core frame when a selected aspect ratio differs from the
+ * source. Keep the driver's hardware scaler for the enlargement to the panel. */
+static uint16_t *aspect_frame_build(const void *src, int w, int h, int pitch_bytes,
+                                    int *out_w, int *out_h) {
+    int dw, dh = h;
+    if (h <= PANEL_PH) {
+        dw = (h * g_aspect_num + g_aspect_den / 2) / g_aspect_den;
+    } else {
+        dh = PANEL_PH;
+        dw = (dh * g_aspect_num + g_aspect_den / 2) / g_aspect_den;
+    }
+    if (dw > PANEL_PW) {
+        dw = PANEL_PW;
+        dh = (dw * g_aspect_den + g_aspect_num / 2) / g_aspect_num;
+    }
+    dw = (dw + 1) & ~1; /* odd source widths can wedge this driver's scaler */
+    if (dw < 2 || dh < 1 || dw > PANEL_PW || dh > PANEL_PH) return NULL;
+
+    uint16_t *dst = stage_next(STAGE_DIRECT, NULL);
+    if (!dst) return NULL;
+    for (int y = 0; y < dh; y++) {
+        int sy = (int)((int64_t)y * h / dh);
+        const uint16_t *srow = (const uint16_t *)((const uint8_t *)src + (size_t)sy * pitch_bytes);
+        uint16_t *drow = dst + (size_t)y * dw;
+        for (int x = 0; x < dw; x++)
+            drow[x] = srow[(int)((int64_t)x * w / dw)];
+    }
+    *out_w = dw;
+    *out_h = dh;
+    return dst;
+}
+
 /* Sharp-bilinear prescale: integer-replicate src by n (fast word-store path)
  * into a tight n*w × n*h buffer. The GE then does only the small leftover
  * fractional stretch to the panel (fill/fit) in HW — far cheaper than a full SW
@@ -772,17 +804,23 @@ int hwdisp_present_direct(const void *src, int w, int h, int pitch_bytes) {
             psrc = b; pw = ow; ph = oh; ppitch = ow * 2;
             staged = 1; hw_scale = 1; integer_hw = 1;
         }
-    } else if (sw_nearest || sw_aspect) {
-        /* Render the chosen aspect viewport to panel size when HW fit would
-         * otherwise preserve the core's unadjusted frame ratio. */
+    } else if (sw_nearest) {
+        /* Nearest mode keeps its established full-panel software scaler. */
         uint16_t *b = panel_build(src, w, h, pitch_bytes, g_panel_scale);
         if (b) {
             psrc = b; pw = PANEL_PW; ph = PANEL_PH;
-            ppitch = PANEL_PW*2; staged = 1; hw_scale = 0;
+            ppitch = PANEL_PW*2; staged = 1;
+            hw_scale = 0;
+        }
+    } else if (sw_aspect) {
+        int ow, oh;
+        uint16_t *b = aspect_frame_build(src, w, h, pitch_bytes, &ow, &oh);
+        if (b) {
+            psrc = b; pw = ow; ph = oh; ppitch = ow * 2; staged = 1;
         }
     }
 
-    if (p_aspect && (hw_scale || sw_aspect)) {
+    if (p_aspect && hw_scale) {
         int fit = integer_hw ? 0 : (g_panel_scale != 2);
         hwdisp_set_driver_fit(fit, 0);
     }
