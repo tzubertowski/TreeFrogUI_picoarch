@@ -649,8 +649,10 @@ static uint16_t *panel_build(const void *src, int w, int h, int pitch_bytes, int
     } else { /* nearest stretch: full fills the panel, aspect fits centered w/ bars */
         int dw = PANEL_PW, dh = PANEL_PH, ox = 0, oy = 0;
         if (mode == 1) {                       /* aspect-fit */
-            if (w * PANEL_PH >= h * PANEL_PW) dh = h * PANEL_PW / w;
-            else                              dw = w * PANEL_PH / h;
+            int num = g_aspect_num, den = g_aspect_den;
+            if (num <= 0 || den <= 0) { num = w; den = h; }
+            if (num * PANEL_PH >= den * PANEL_PW) dh = den * PANEL_PW / num;
+            else                                  dw = num * PANEL_PH / den;
             ox = (PANEL_PW - dw) / 2; oy = (PANEL_PH - dh) / 2;
         }
         unsigned geo = ((unsigned)dw<<16)|(unsigned)dh;
@@ -737,6 +739,8 @@ int hwdisp_present_direct(const void *src, int w, int h, int pitch_bytes) {
     int game = !(w == PANEL_PW && h == PANEL_PH);
     int sw_nearest = game && g_filter_nearest;
     int sw_integer = game && !g_filter_nearest && g_panel_scale == 0;
+    int sw_aspect = game && g_panel_scale == 1 &&
+                    g_aspect_num > 0 && g_aspect_den > 0;
 
     const void *psrc = src; int pw = w, ph = h, ppitch = pitch_bytes;
     int staged = 0;
@@ -768,14 +772,17 @@ int hwdisp_present_direct(const void *src, int w, int h, int pitch_bytes) {
             psrc = b; pw = ow; ph = oh; ppitch = ow * 2;
             staged = 1; hw_scale = 1; integer_hw = 1;
         }
-    } else if (sw_nearest) {
-        /* True nearest (full/aspect SW stretch) or exact NxN integer — present
-         * the 640x480 panel buffer 1:1, no HW scaling. */
+    } else if (sw_nearest || sw_aspect) {
+        /* Render the chosen aspect viewport to panel size when HW fit would
+         * otherwise preserve the core's unadjusted frame ratio. */
         uint16_t *b = panel_build(src, w, h, pitch_bytes, g_panel_scale);
-        if (b) { psrc = b; pw = PANEL_PW; ph = PANEL_PH; ppitch = PANEL_PW*2; staged = 1; }
+        if (b) {
+            psrc = b; pw = PANEL_PW; ph = PANEL_PH;
+            ppitch = PANEL_PW*2; staged = 1; hw_scale = 0;
+        }
     }
 
-    if (p_aspect && hw_scale) {
+    if (p_aspect && (hw_scale || sw_aspect)) {
         int fit = integer_hw ? 0 : (g_panel_scale != 2);
         hwdisp_set_driver_fit(fit, 0);
     }
