@@ -526,6 +526,8 @@ typedef struct {
 static void core_options_idle_draw(void *data)
 {
 	core_options_draw_state *state = data;
+	if (state->sel < 0 || (size_t)state->sel >= state->page_count)
+		return;
 	struct core_option_entry *entry = state->page_entries[state->sel];
 	const char *value = entry->labels && entry->labels[entry->value]
 		? entry->labels[entry->value] : "";
