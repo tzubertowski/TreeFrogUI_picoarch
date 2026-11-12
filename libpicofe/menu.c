@@ -19,6 +19,7 @@
 #include <unistd.h>
 
 #include "menu.h"
+#include "menu_font.h" /* menu.c uses menu_font_* / uint16_t; root menu.c includes this (upstream omitted it) */
 #include "fonts.h"
 #include "readpng.h"
 #include "lprintf.h"
